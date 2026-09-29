@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design Bytes Writer</title>
+<link rel="icon" href="/images/db-icon.png">
+<link rel="stylesheet" href="/article.css">
+<link rel="stylesheet" href="/editor.css">
+</head>
+<body data-mode="split" class="empty">
+<div class="app">
+  <aside class="sidebar" aria-label="Articles">
+    <header class="brand">
+      <img src="/images/db-logo@2x.png" alt="design bytes" width="146" height="28">
+    </header>
+    <div class="sidebar-actions">
+      <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
+      <button id="new" class="btn primary" title="New article">New</button>
+    </div>
+    <nav><ul id="list"></ul></nav>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <main class="workspace">
+    <header class="topbar">
+      <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar (⌘\)" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M7.5 3.5v13"/></svg>
+      </button>
+      <div class="doc-title">
+        <span id="doc-title">design bytes</span>
+        <span id="doc-file"></span>
+      </div>
+      <span id="status" class="status" role="status"></span>
+      <div class="seg" id="modes" role="group" aria-label="View">
+        <button data-mode="write" title="Write only (⌘/ cycles)">Write</button>
+        <button data-mode="split" title="Write + preview">Split</button>
+        <button data-mode="preview" title="Preview only">Preview</button>
+      </div>
+      <button class="icon-btn" id="focus" title="Focus mode (⌘.)" aria-label="Focus mode">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 7V4.5A1.5 1.5 0 0 1 4.5 3H7M13 3h2.5A1.5 1.5 0 0 1 17 4.5V7M17 13v2.5a1.5 1.5 0 0 1-1.5 1.5H13M7 17H4.5A1.5 1.5 0 0 1 3 15.5V13"/></svg>
+      </button>
+      <button class="icon-btn" id="theme" title="Theme" aria-label="Theme">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5v13a6.5 6.5 0 0 0 0-13Z" fill="currentColor"/></svg>
+      </button>
+      <div class="menu-wrap">
+        <button class="icon-btn" id="menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Article actions" title="Article actions">
+          <svg viewBox="0 0 20 20" fill="currentColor"><circle cx="4.5" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="15.5" cy="10" r="1.5"/></svg>
+        </button>
+        <div class="menu" id="menu" role="menu" hidden>
+          <button role="menuitem" data-action="rename">Rename file…</button>
+          <button role="menuitem" data-action="export">Download as HTML</button>
+          <button role="menuitem" data-action="copy-html">Copy HTML</button>
+          <hr>
+          <button role="menuitem" data-action="delete" class="danger">Move to trash…</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="toolbar" role="toolbar" aria-label="Formatting">
+      <button data-cmd="h2" title="Heading (⌘⌥2)">H2</button>
+      <button data-cmd="h3" title="Subheading (⌘⌥3)">H3</button>
+      <span class="sep"></span>
+      <button data-cmd="bold" title="Bold (⌘B)"><b>B</b></button>
+      <button data-cmd="italic" title="Italic (⌘I)"><i>I</i></button>
+      <button data-cmd="strike" title="Strikethrough (⌘⇧X)"><s>S</s></button>
+      <button data-cmd="code" title="Code (⌘E)" class="mono">&lt;/&gt;</button>
+      <span class="sep"></span>
+      <button data-cmd="link" title="Link (⌘K)">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5L10 5"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></svg>
+      </button>
+      <button data-cmd="image" title="Add image (or paste / drop one)">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="2"/><circle cx="7" cy="8" r="1.5"/><path d="m3 15 4.5-4.5 3 3 2-2L17 16"/></svg>
+      </button>
+      <button data-cmd="quote" title="Quote (⌘⇧.)">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 11.5C4 8 5.8 5.6 8.5 5l.5 1.2C7.3 7 6.6 8.3 6.6 9.6H9V15H4v-3.5Zm7 0C11 8 12.8 5.6 15.5 5l.5 1.2c-1.7.8-2.4 2.1-2.4 3.4H16V15h-5v-3.5Z"/></svg>
+      </button>
+      <span class="sep"></span>
+      <button data-cmd="ul" title="Bulleted list (⌘⇧8)">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 5.5h9M8 10h9M8 14.5h9"/><circle cx="4" cy="5.5" r=".9" fill="currentColor"/><circle cx="4" cy="10" r=".9" fill="currentColor"/><circle cx="4" cy="14.5" r=".9" fill="currentColor"/></svg>
+      </button>
+      <button data-cmd="ol" title="Numbered list (⌘⇧7)">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 5.5h9M8 10h9M8 14.5h9"/><text x="2.2" y="7.4" font-size="5.5" fill="currentColor" stroke="none" font-family="system-ui" font-weight="700">1</text><text x="2.2" y="11.9" font-size="5.5" fill="currentColor" stroke="none" font-family="system-ui" font-weight="700">2</text><text x="2.2" y="16.4" font-size="5.5" fill="currentColor" stroke="none" font-family="system-ui" font-weight="700">3</text></svg>
+      </button>
+      <button data-cmd="task" title="Checklist (⌘⇧9)">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="5" height="5" rx="1"/><path d="m3.7 6 1 1 1.8-2"/><rect x="2.5" y="11.5" width="5" height="5" rx="1"/><path d="M10 6h7M10 14h7"/></svg>
+      </button>
+      <button data-cmd="hr" title="Divider">—</button>
+      <span class="grow"></span>
+      <button data-cmd="font" id="font-btn" title="Editor font">Aa</button>
+    </div>
+
+    <div class="banner" id="conflict" hidden>
+      <span><strong>This article changed on disk</strong> while you were editing it.</span>
+      <button class="btn" data-conflict="disk">Load disk version</button>
+      <button class="btn primary" data-conflict="mine">Keep mine</button>
+    </div>
+
+    <div class="panes">
+      <div class="pane pane-edit">
+        <textarea id="editor" spellcheck="true" autocapitalize="sentences" aria-label="Article markdown"
+          placeholder="Start writing…"></textarea>
+      </div>
+      <div class="pane pane-preview" id="preview-pane">
+        <article id="preview" class="article"></article>
+      </div>
+      <div class="empty-state" id="empty">
+        <img src="/images/db-icon@2x.png" alt="" width="64" height="64">
+        <h2>Nothing open</h2>
+        <p>Pick an article from the sidebar, or start a new one.</p>
+        <button class="btn primary" id="empty-new">New article</button>
+      </div>
+    </div>
+
+    <footer class="statusbar">
+      <span id="stats"></span>
+      <button id="issues-btn" class="issues-btn" hidden></button>
+      <span class="grow"></span>
+      <span id="cursor"></span>
+      <div class="issues" id="issues" hidden></div>
+    </footer>
+  </main>
+</div>
+
+<button class="focus-exit" id="focus-exit">Exit focus · Esc</button>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="dialog">
+  <form method="dialog">
+    <h2 id="dialog-title"></h2>
+    <p id="dialog-body"></p>
+    <label id="dialog-field">
+      <span id="dialog-label"></span>
+      <input id="dialog-input" autocomplete="off" spellcheck="false">
+      <small id="dialog-hint"></small>
+    </label>
+    <div class="dialog-actions">
+      <button value="ok" class="btn primary" id="dialog-ok">OK</button>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<input type="file" id="file-picker" accept="image/*" multiple hidden>
+
+<script src="/lib/markdown.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

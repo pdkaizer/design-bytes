@@ -1,0 +1,146 @@
+/* Article typography — shared by the editor preview and published pages. */
+
+:root {
+  --a-paper: #fbf9f8;
+  --a-ink: #2a2223;
+  --a-soft: #6f6262;
+  --a-rule: #e4dbd9;
+  --a-link: #8b4f47;
+  --a-link-line: #dcc7c3;
+  --a-code: #f2ecea;
+  --a-quote: #d9c9c7;
+  --a-strong: #372c2d;
+  --a-serif: "Iowan Old Style", "Charter", "Palatino Linotype", Palatino, Georgia, serif;
+  --a-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --a-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --a-paper: #1c1718;
+    --a-ink: #ece5e3;
+    --a-soft: #a89b99;
+    --a-rule: #3a3132;
+    --a-link: #e4bcb4;
+    --a-link-line: #6d5552;
+    --a-code: #2a2324;
+    --a-quote: #6d5a58;
+    --a-strong: #fff;
+  }
+}
+
+:root[data-theme="dark"] {
+  --a-paper: #1c1718;
+  --a-ink: #ece5e3;
+  --a-soft: #a89b99;
+  --a-rule: #3a3132;
+  --a-link: #e4bcb4;
+  --a-link-line: #6d5552;
+  --a-code: #2a2324;
+  --a-quote: #6d5a58;
+  --a-strong: #fff;
+}
+
+.article {
+  max-width: 68ch;
+  margin: 0 auto;
+  color: var(--a-ink);
+  font: 1.125rem/1.7 var(--a-serif);
+  overflow-wrap: break-word;
+  font-kerning: normal;
+  hanging-punctuation: first;
+}
+
+.article > :first-child { margin-top: 0; }
+
+.article h1, .article h2, .article h3, .article h4, .article h5, .article h6 {
+  font-family: var(--a-sans);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  margin: 2em 0 0.6em;
+  text-wrap: balance;
+}
+.article h1 { font-size: 2.1em; }
+.article h2 { font-size: 1.5em; }
+.article h3 { font-size: 1.2em; }
+.article h4, .article h5, .article h6 { font-size: 1em; }
+.article > :is(h1, h2):first-child { font-size: 2.2em; letter-spacing: -0.025em; margin-bottom: 0.35em; }
+
+.article p, .article ul, .article ol, .article blockquote, .article pre, .article .table-wrap {
+  margin: 0 0 1.25em;
+}
+.article p { text-wrap: pretty; }
+
+.article a {
+  color: var(--a-link);
+  text-decoration: underline;
+  text-decoration-color: var(--a-link-line);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+  transition: text-decoration-color 0.15s;
+}
+.article a:hover { text-decoration-color: currentColor; }
+
+.article strong { font-weight: 700; color: var(--a-strong); }
+.article del { color: var(--a-soft); }
+
+.article blockquote {
+  margin-left: 0;
+  padding: 0.1em 0 0.1em 1.2em;
+  border-left: 3px solid var(--a-quote);
+  color: var(--a-soft);
+  font-style: italic;
+}
+.article blockquote > :last-child { margin-bottom: 0; }
+
+.article code {
+  font: 0.84em var(--a-mono);
+  background: var(--a-code);
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+}
+.article pre {
+  background: var(--a-code);
+  padding: 1em 1.2em;
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+.article pre code { background: none; padding: 0; font-size: 0.82em; }
+
+.article img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.8em auto;
+  border-radius: 8px;
+}
+
+.article hr {
+  border: 0;
+  margin: 2.6em 0;
+  text-align: center;
+  color: var(--a-soft);
+}
+.article hr::before { content: "◆  ◆  ◆"; font-size: 0.6em; letter-spacing: 0.4em; white-space: pre; }
+
+.article ul, .article ol { padding-left: 1.4em; }
+.article li + li { margin-top: 0.35em; }
+.article li > ul, .article li > ol { margin: 0.35em 0 0; }
+.article li::marker { color: var(--a-soft); }
+.article ul.tasks { padding-left: 0.2em; }
+.article li.task { list-style: none; }
+.article li.task input { margin: 0 0.5em 0 0; accent-color: var(--a-link); }
+
+.article .table-wrap { overflow-x: auto; }
+.article table { border-collapse: collapse; width: 100%; font: 0.88em/1.5 var(--a-sans); }
+.article th, .article td { border-bottom: 1px solid var(--a-rule); padding: 0.55em 0.8em; text-align: left; }
+.article th { font-weight: 600; border-bottom-width: 2px; }
+
+.article .meta {
+  font: 0.8em var(--a-sans);
+  color: var(--a-soft);
+  margin: 0 0 2.2em;
+  letter-spacing: 0.01em;
+}

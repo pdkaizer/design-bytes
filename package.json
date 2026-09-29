@@ -1,0 +1,15 @@
+{
+  "name": "design-bytes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Markdown writing engine for Design Bytes articles",
+  "scripts": {
+    "start": "node editor/server.js --open",
+    "dev": "node editor/server.js",
+    "build": "node editor/build.js",
+    "test": "node --test editor/test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
