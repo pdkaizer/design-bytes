@@ -70,10 +70,71 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Front matter: an optional block of "key: value" lines at the top of a file.
+  //
+  //   ---
+  //   status: published
+  //   ---
+
+  const STATUSES = ['backlog', 'editing', 'final', 'published'];
+  const DEFAULT_STATUS = 'backlog';
+  const FRONT = /^---[ \t]*\r?\n([\s\S]*?)\r?\n?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/;
+  const META_LINE = /^([A-Za-z0-9_-]+):[ \t]*(.*?)[ \t]*$/;
+
+  // Returns { data, body, end, lines }: `end` is the character offset where the
+  // body starts and `lines` how many lines the front matter occupies.
+  function frontMatter(src) {
+    const text = String(src == null ? '' : src);
+    const m = text.match(FRONT);
+    const inner = m ? m[1].split(/\r?\n/) : [];
+    // Only treat it as front matter if every line is "key: value" (or blank / a comment),
+    // so an article that happens to start with a --- divider isn't swallowed.
+    if (!m || !inner.every((l) => !l.trim() || l.trim().startsWith('#') || META_LINE.test(l))) {
+      return { data: {}, body: text, end: 0, lines: 0 };
+    }
+    const data = {};
+    for (const line of inner) {
+      const kv = line.match(META_LINE);
+      if (kv) data[kv[1]] = kv[2].replace(/^(["'])(.*)\1$/, '$2');
+    }
+    return { data, body: text.slice(m[0].length), end: m[0].length, lines: (m[0].match(/\n/g) || []).length };
+  }
+
+  // Returns src with `key` set to `value` in its front matter (adding the block if needed).
+  function setMeta(src, key, value) {
+    const text = String(src == null ? '' : src);
+    const fm = frontMatter(text);
+    const line = `${key}: ${value}`;
+    if (!fm.end) return `---\n${line}\n---\n\n${text.replace(/^\s*\n/, '')}`;
+    const inner = text.match(FRONT)[1].split(/\r?\n/);
+    const at = inner.findIndex((l) => l.startsWith(`${key}:`));
+    if (at > -1) inner[at] = line;
+    else inner.push(line);
+    return `---\n${inner.filter((l) => l.trim()).join('\n')}\n---\n${fm.body}`;
+  }
+
+  // Markdown ready to paste into a publishing system such as Ghost: no front
+  // matter, links that were pasted twice repaired, and (by default) without the
+  // title heading, since the publishing system has its own title field.
+  function forPublishing(src, { includeTitle = false } = {}) {
+    let body = frontMatter(src).body.replace(/\r\n?/g, '\n').replace(/^\s*\n/, '');
+    if (!includeTitle) {
+      body = body.replace(/^ {0,3}#{1,6}[ \t]+.*\n?/, '').replace(/^\S.*\n {0,3}(?:=+|-+)[ \t]*(?:\n|$)/, '');
+    }
+    body = body.replace(/\]\(\[[^\]]*\]\(([^()\s]+)\)\)/g, ']($1)');
+    return body.replace(/^\s*\n/, '').replace(/\s*$/, '\n');
+  }
+
+  function status(src) {
+    const value = String(frontMatter(src).data.status || '').toLowerCase();
+    return STATUSES.includes(value) ? value : DEFAULT_STATUS;
+  }
+
+  // ---------------------------------------------------------------------------
   // Block level
 
   function render(src) {
-    const text = String(src == null ? '' : src)
+    const text = frontMatter(src).body
       .replace(/\r\n?/g, '\n')
       .replace(/\t/g, '    ')
       .replace(/\u0000/g, '�');
@@ -403,7 +464,7 @@
   // Helpers for the writing tools
 
   function title(src) {
-    const text = String(src || '');
+    const text = frontMatter(src).body;
     const atx = text.match(/^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m);
     if (atx) return plainText(inline(atx[1])).trim();
     const setext = text.match(/^(\S.*)\n {0,3}(?:=+|-+)[ \t]*$/m);
@@ -411,7 +472,7 @@
   }
 
   function stats(src) {
-    const text = String(src || '');
+    const text = frontMatter(src).body;
     const prose = text
       .replace(/^ {0,3}(`{3,}|~{3,})[\s\S]*?^ {0,3}\1/gm, ' ')
       .replace(/!\[[^\]]*\]\((?:[^()]|\([^)]*\))*\)/g, ' ')
@@ -435,7 +496,8 @@
   // Lightweight writing checks. Each issue: { line, column, length, message }.
   function lint(src) {
     const issues = [];
-    const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
+    const fm = frontMatter(src);
+    const lines = fm.body.replace(/\r\n?/g, '\n').split('\n');
     let fence = null;
 
     lines.forEach((line, n) => {
@@ -444,7 +506,7 @@
       if (fence) return;
 
       const add = (index, length, message) =>
-        issues.push({ line: n + 1, column: index + 1, length, message });
+        issues.push({ line: fm.lines + n + 1, column: index + 1, length, message });
       const scan = (re, fn) => { let m; re.lastIndex = 0; while ((m = re.exec(line))) fn(m); };
       const code = [];
       scan(/`+[^`]*`+/g, (m) => code.push([m.index, m.index + m[0].length]));
@@ -474,5 +536,8 @@
     return issues;
   }
 
-  return { render, inline, title, stats, excerpt, lint, slugify, plainText, escape: esc };
+  return {
+    render, inline, title, stats, excerpt, lint, slugify, plainText, escape: esc,
+    frontMatter, setMeta, status, forPublishing, STATUSES, DEFAULT_STATUS,
+  };
 });

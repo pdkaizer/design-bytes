@@ -58,7 +58,7 @@ async function listArticles() {
   const articles = await Promise.all(names.map(async (name) => {
     const { slug, content, mtime } = await readArticle(name.slice(0, -3));
     const { words, minutes } = md.stats(content);
-    return { slug, title: md.title(content) || slug, excerpt: md.excerpt(content), words, minutes, mtime };
+    return { slug, title: md.title(content) || slug, status: md.status(content), excerpt: md.excerpt(content), words, minutes, mtime };
   }));
   return articles.sort((a, b) => b.mtime - a.mtime);
 }

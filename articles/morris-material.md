@@ -1,3 +1,6 @@
+---
+status: published
+---
 
 ## How the Arts and Crafts Movement Shaped Digital Product Design
 

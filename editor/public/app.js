@@ -10,6 +10,9 @@
   const el = {
     list: $('#list'),
     search: $('#search'),
+    filters: $('#filters'),
+    stage: $('#stage'),
+    stageSelect: $('#stage-select'),
     preview: $('#preview'),
     previewPane: $('#preview-pane'),
     title: $('#doc-title'),
@@ -83,15 +86,45 @@
     renderList();
   }
 
+  const STATUS_LABELS = { backlog: 'Backlog', editing: 'Editing', final: 'Final', published: 'Published' };
+
+  function renderFilters() {
+    const current = prefs.get('filter', 'all');
+    const count = (s) => state.articles.filter((a) => s === 'all' || a.status === s).length;
+    el.filters.replaceChildren(...['all', ...md.STATUSES].map((s) => {
+      const b = document.createElement('button');
+      b.dataset.filter = s;
+      if (s !== 'all') b.dataset.status = s;
+      b.setAttribute('aria-pressed', String(s === current));
+      const label = document.createElement('span');
+      label.textContent = s === 'all' ? 'All' : STATUS_LABELS[s];
+      const n = document.createElement('span');
+      n.className = 'count';
+      n.textContent = count(s);
+      b.append(label, n);
+      return b;
+    }));
+  }
+
+  el.filters.addEventListener('click', (e) => {
+    const filter = e.target.closest('[data-filter]')?.dataset.filter;
+    if (!filter) return;
+    prefs.set('filter', filter);
+    renderList();
+  });
+
   function renderList() {
+    renderFilters();
     const q = el.search.value.trim().toLowerCase();
+    const filter = prefs.get('filter', 'all');
     const shown = state.articles.filter((a) =>
-      !q || a.title.toLowerCase().includes(q) || a.slug.includes(q) || (a.excerpt || '').toLowerCase().includes(q));
+      (filter === 'all' || a.status === filter) &&
+      (!q || a.title.toLowerCase().includes(q) || a.slug.includes(q) || (a.excerpt || '').toLowerCase().includes(q)));
 
     if (!shown.length) {
       const li = document.createElement('li');
       li.className = 'list-empty';
-      li.textContent = q ? 'No matches' : 'No articles yet';
+      li.textContent = q ? 'No matches' : filter !== 'all' ? `Nothing in ${STATUS_LABELS[filter]}` : 'No articles yet';
       el.list.replaceChildren(li);
       return;
     }
@@ -106,7 +139,11 @@
       title.textContent = a.title;
       const meta = document.createElement('span');
       meta.className = 'item-meta';
-      meta.textContent = `${a.words.toLocaleString()} words · ${ago(a.mtime)}`;
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.dataset.status = a.status;
+      badge.textContent = STATUS_LABELS[a.status];
+      meta.append(badge, ` · ${a.words.toLocaleString()} words · ${ago(a.mtime)}`);
       btn.append(title, meta);
       li.append(btn);
       return li;
@@ -268,10 +305,16 @@
       el.issuesBtn.textContent = `${state.issues.length} ${state.issues.length === 1 ? 'suggestion' : 'suggestions'}`;
       if (!el.issues.hidden) renderIssues();
 
+      const status = md.status(text);
+      el.stageSelect.value = status;
+      el.stage.dataset.status = status;
+      body.dataset.status = status;
+
       const entry = state.articles.find((a) => a.slug === state.doc.slug);
-      if (entry && (entry.title !== title || entry.words !== s.words)) {
+      if (entry && (entry.title !== title || entry.words !== s.words || entry.status !== status)) {
         entry.title = title;
         entry.words = s.words;
+        entry.status = status;
         renderList();
       }
     };
@@ -542,6 +585,30 @@
   });
 
   // ---------------------------------------------------------------------------
+  // Article status — stored as `status:` in the file's front matter
+
+  function setArticleStatus(value) {
+    const text = ed.value;
+    const next = md.setMeta(text, 'status', value);
+    if (next === text) return;
+    // Only replace the changed head of the file, so undo and the caret stay sensible.
+    let same = 0;
+    while (same < text.length && same < next.length && text[text.length - 1 - same] === next[next.length - 1 - same]) same++;
+    const delta = next.length - text.length;
+    const { selectionStart, selectionEnd, scrollTop } = ed;
+    const headEnd = text.length - same;
+    replaceRange(0, headEnd, next.slice(0, next.length - same));
+    const shift = (pos) => (pos >= headEnd ? pos + delta : Math.min(pos, next.length - same));
+    ed.setSelectionRange(shift(selectionStart), shift(selectionEnd));
+    ed.scrollTop = scrollTop;
+    toast(`Marked as ${STATUS_LABELS[value]}`);
+  }
+
+  el.stageSelect.addEventListener('change', () => {
+    if (state.doc) setArticleStatus(el.stageSelect.value);
+  });
+
+  // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
 
   function stamp() {
@@ -701,16 +768,55 @@
     a.click();
   }
 
-  async function copyHtml() {
+  async function copyText(text) {
     try {
-      await navigator.clipboard.writeText(md.render(ed.value));
-      toast('Article HTML copied');
+      await navigator.clipboard.writeText(text);
+      return true;
     } catch {
-      toast('Clipboard not available');
+      // Fallback for browsers that block the async clipboard API.
+      const t = document.createElement('textarea');
+      t.value = text;
+      t.style.cssText = 'position:fixed;opacity:0';
+      document.body.append(t);
+      t.select();
+      const ok = document.execCommand('copy');
+      t.remove();
+      ed.focus();
+      return ok;
     }
   }
 
-  const actions = { rename: renameDoc, export: exportDoc, 'copy-html': copyHtml, delete: deleteDoc };
+  async function copyHtml() {
+    toast(await copyText(md.render(ed.value)) ? 'Article HTML copied' : 'Clipboard not available');
+  }
+
+  let copiedTimer = 0;
+  async function copyMarkdown({ includeTitle = false } = {}) {
+    const text = md.forPublishing(ed.value, { includeTitle });
+    if (!(await copyText(text))) { toast('Clipboard not available'); return; }
+    const words = md.stats(text).words.toLocaleString();
+    toast(includeTitle
+      ? `Markdown copied (${words} words)`
+      : `Markdown copied (${words} words) — the title goes in Ghost’s title field`);
+    const btn = $('#copy-md');
+    btn.classList.add('done');
+    btn.querySelector('span').textContent = 'Copied';
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      btn.classList.remove('done');
+      btn.querySelector('span').textContent = 'Copy for Ghost';
+    }, 1800);
+  }
+
+  $('#copy-md').addEventListener('click', () => { if (state.doc) copyMarkdown(); });
+
+  const actions = {
+    rename: renameDoc,
+    export: exportDoc,
+    'copy-md': () => copyMarkdown({ includeTitle: true }),
+    'copy-html': copyHtml,
+    delete: deleteDoc,
+  };
 
   function toggleMenu(open = el.menu.hidden) {
     el.menu.hidden = !open;

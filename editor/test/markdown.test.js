@@ -89,3 +89,31 @@ test('renders the real article without leaking markdown', () => {
   assert.ok(!/\]\(|\*\*/.test(html), 'no raw link or bold syntax left');
   assert.ok(html.includes('<a href="https://m3.material.io/">Google’s Material Design</a>'));
 });
+
+test('front matter: status is read, hidden from output, and defaults to backlog', () => {
+  const src = '---\nstatus: final\n---\n\n## Hi\n\nthe the x';
+  assert.equal(md.status(src), 'final');
+  assert.equal(md.title(src), 'Hi');
+  assert.equal(r(src), '<h2 id="hi">Hi</h2>\n<p>the the x</p>');
+  assert.equal(md.lint(src)[0].line, 7, 'lint line numbers count the front matter');
+  assert.equal(md.status('## No front matter'), 'backlog');
+  assert.equal(md.status('---\nstatus: nonsense\n---\n'), 'backlog');
+});
+
+test('front matter: a leading --- divider is not mistaken for front matter', () => {
+  assert.equal(r('---\n\nText\n\n---\nmore'), '<hr>\n<p>Text</p>\n<hr>\n<p>more</p>');
+});
+
+test('setMeta adds or updates a key', () => {
+  assert.equal(md.setMeta('\n## Hi\n', 'status', 'editing'), '---\nstatus: editing\n---\n\n## Hi\n');
+  assert.equal(md.setMeta('---\ntitle: x\nstatus: backlog\n---\n\nBody', 'status', 'published'),
+    '---\ntitle: x\nstatus: published\n---\n\nBody');
+  assert.equal(md.setMeta('---\ntitle: x\n---\nBody', 'status', 'final'), '---\ntitle: x\nstatus: final\n---\nBody');
+});
+
+test('forPublishing strips front matter and title, and repairs double-pasted links', () => {
+  const src = '---\nstatus: final\n---\n\n## The Title\n\nSee [x]([https://a.com](https://a.com/)).\n\n## Next\n';
+  assert.equal(md.forPublishing(src), 'See [x](https://a.com/).\n\n## Next\n');
+  assert.equal(md.forPublishing(src, { includeTitle: true }), '## The Title\n\nSee [x](https://a.com/).\n\n## Next\n');
+  assert.equal(md.forPublishing('Intro first.\n\n## Section'), 'Intro first.\n\n## Section\n');
+});

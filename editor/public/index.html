@@ -18,6 +18,7 @@
       <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
       <button id="new" class="btn primary" title="New article">New</button>
     </div>
+    <div class="filters" id="filters" role="group" aria-label="Filter by status"></div>
     <nav><ul id="list"></ul></nav>
   </aside>
   <div class="scrim" id="scrim"></div>
@@ -31,6 +32,19 @@
         <span id="doc-title">design bytes</span>
         <span id="doc-file"></span>
       </div>
+      <button class="btn copy-md" id="copy-md" title="Copy Markdown for Ghost — without the status block or title">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6.5" y="6.5" width="10" height="11" rx="2"/><path d="M13.5 6.5V4.5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1"/></svg>
+        <span>Copy for Ghost</span>
+      </button>
+      <label class="stage" id="stage" title="Article status">
+        <span class="visually-hidden">Status</span>
+        <select id="stage-select">
+          <option value="backlog">Backlog</option>
+          <option value="editing">Editing</option>
+          <option value="final">Final</option>
+          <option value="published">Published</option>
+        </select>
+      </label>
       <span id="status" class="status" role="status"></span>
       <div class="seg" id="modes" role="group" aria-label="View">
         <button data-mode="write" title="Write only (⌘/ cycles)">Write</button>
@@ -50,6 +64,7 @@
         <div class="menu" id="menu" role="menu" hidden>
           <button role="menuitem" data-action="rename">Rename file…</button>
           <button role="menuitem" data-action="export">Download as HTML</button>
+          <button role="menuitem" data-action="copy-md">Copy Markdown with title</button>
           <button role="menuitem" data-action="copy-html">Copy HTML</button>
           <hr>
           <button role="menuitem" data-action="delete" class="danger">Move to trash…</button>

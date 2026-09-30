@@ -17,6 +17,7 @@
   --warn: #b7792f;
   --danger: #a6403a;
   --warn-bg: #f7ead9;
+  --info: #4f7396;
   --shadow: 0 12px 32px rgba(42, 34, 35, 0.16), 0 2px 6px rgba(42, 34, 35, 0.08);
   --sidebar: 272px;
   color-scheme: light;
@@ -38,6 +39,7 @@
     --warn: #dba461;
     --danger: #e0766f;
     --warn-bg: #3a2c1f;
+  --info: #8fb2d4;
     --shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
     color-scheme: dark;
   }
@@ -58,6 +60,7 @@
   --warn: #dba461;
   --danger: #e0766f;
   --warn-bg: #3a2c1f;
+  --info: #8fb2d4;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
   color-scheme: dark;
 }
@@ -137,6 +140,75 @@ nav { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
 }
 .item-meta { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
 .list-empty { padding: 12px 10px; color: var(--muted); }
+
+/* Article status ---------------------------------------------------------- */
+
+[data-status="backlog"] { --stage: var(--muted); }
+[data-status="editing"] { --stage: var(--warn); }
+[data-status="final"] { --stage: var(--info); }
+[data-status="published"] { --stage: var(--ok); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 10px; }
+.filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.filters button:hover { background: var(--surface-2); color: var(--text); }
+.filters button[aria-pressed="true"] { background: var(--bg); border-color: var(--text); color: var(--text); }
+.filters button[data-status]::before, .badge::before, .stage::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stage);
+}
+.filters .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; color: var(--stage); font-weight: 600; }
+.badge[data-status="backlog"] { color: var(--muted); }
+
+.stage {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.stage:hover { background: var(--surface); }
+.stage:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.stage select {
+  appearance: none;
+  padding: 0 14px 0 0;
+  border: 0;
+  outline: 0;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23998b89' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right center / 9px;
+  color: var(--text);
+  font: 600 12.5px var(--ui);
+  cursor: pointer;
+}
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+body.empty .stage { display: none; }
+
+.copy-md { display: none; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: 12.5px; }
+.copy-md svg { width: 15px; height: 15px; }
+body:not(.empty)[data-status="final"] .copy-md,
+body:not(.empty)[data-status="published"] .copy-md { display: inline-flex; }
+.copy-md.done { border-color: var(--ok); color: var(--ok); }
 
 /* Buttons ----------------------------------------------------------------- */
 
@@ -486,7 +558,8 @@ dialog small:empty { display: none; }
   body.show-sidebar .sidebar { transform: none; box-shadow: var(--shadow); }
   body.show-sidebar .scrim { display: block; position: fixed; z-index: 35; inset: 0; background: rgba(28, 23, 24, 0.35); }
   .topbar { padding: 6px 8px; gap: 2px; }
-  #doc-file, .status { display: none; }
+  #doc-file, .status, #focus, .copy-md span { display: none; }
+  .copy-md { padding: 0 8px; }
   .seg button { padding: 4px 7px; }
   body[data-mode="split"] .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   body[data-mode="split"] .pane-edit { border-right: 0; border-bottom: 1px solid var(--line); }

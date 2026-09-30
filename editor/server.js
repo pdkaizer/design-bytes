@@ -9,6 +9,7 @@ const http = require('http');
 const fsp = require('fs').promises;
 const path = require('path');
 const { execFile } = require('child_process');
+const md = require('./lib/markdown');
 const store = require('./lib/store');
 const { renderArticle } = require('./lib/template');
 
@@ -88,7 +89,7 @@ async function articlesApi(req, res, slug, action) {
       const clean = String(title || '').trim() || 'Untitled';
       const slugged = await store.uniqueSlug(store.slugify(clean));
       await fsp.mkdir(store.ARTICLES, { recursive: true });
-      await store.writeAtomic(store.articlePath(slugged), `# ${clean}\n\n`);
+      await store.writeAtomic(store.articlePath(slugged), md.setMeta(`# ${clean}\n\n`, 'status', md.DEFAULT_STATUS));
       return json(res, 201, await store.readArticle(slugged));
     }
     throw httpError(405, 'Method not allowed');

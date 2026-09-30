@@ -3,7 +3,7 @@
 
 // Renders every article in /articles to a static site in /dist:
 //   dist/index.html            — article list
-//   dist/articles/<slug>.html  — one page per article
+//   dist/articles/<slug>.html  — one page per published article
 //   dist/images/               — copied from /images
 
 const fsp = require('fs').promises;
@@ -21,14 +21,18 @@ const OUT = path.join(store.ROOT, 'dist');
     filter: (src) => !path.basename(src).startsWith('.'),
   });
 
-  const articles = await store.listArticles();
+  // Only published articles make it into the site.
+  const all = await store.listArticles();
+  const articles = all.filter((a) => a.status === 'published');
   for (const { slug, mtime } of articles) {
     const { content } = await store.readArticle(slug);
     await fsp.writeFile(path.join(OUT, 'articles', `${slug}.html`), renderArticle(content, { mtime }));
   }
   await fsp.writeFile(path.join(OUT, 'index.html'), renderIndex(articles));
 
-  console.log(`Built ${articles.length} article${articles.length === 1 ? '' : 's'} → ${path.relative(process.cwd(), OUT) || OUT}/`);
+  const skipped = all.length - articles.length;
+  console.log(`Built ${articles.length} published article${articles.length === 1 ? '' : 's'} → ${path.relative(process.cwd(), OUT) || OUT}/` +
+    (skipped ? ` (${skipped} not yet published)` : ''));
 })().catch((err) => {
   console.error(err);
   process.exit(1);

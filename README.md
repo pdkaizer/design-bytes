@@ -12,6 +12,14 @@ npm start        # opens the writer at http://localhost:4321
 - Paste, drop or pick an image and it's saved to `images/` and inserted as `![](../images/…)`.
 - Write / Split / Preview views, focus mode, light & dark themes, three editor fonts.
 - The status bar shows word count, reading time, and writing suggestions (links pasted twice, repeated words, extra spaces).
+- Each article has a status — **Backlog → Editing → Final → Published** — set from the picker in the top bar and stored at the top of the file:
+  ```
+  ---
+  status: published
+  ---
+  ```
+  New articles start in Backlog. The sidebar can filter by status.
+- Final and Published articles get a **Copy for Ghost** button: it copies the Markdown without the status block or the title heading (Ghost has its own title field), with double-pasted links repaired. The ⋯ menu has "Copy Markdown with title" if you want the heading too.
 - Deleted articles go to `articles/.trash/`.
 
 | Shortcut | Action |
@@ -31,7 +39,7 @@ npm start        # opens the writer at http://localhost:4321
 ## Publishing
 
 ```sh
-npm run build    # renders every article to dist/ (index + one page per article)
+npm run build    # renders Published articles to dist/ (index + one page per article)
 ```
 
 "Download as HTML" in the ⋯ menu exports a single, self-contained article with its images embedded.
