@@ -20,6 +20,10 @@ npm start        # opens the writer at http://localhost:4321
   ```
   New articles start in Backlog. The sidebar can filter by status.
 - Final and Published articles get a **Copy for Ghost** button: it copies the Markdown without the status block or the title heading (Ghost has its own title field), with double-pasted links repaired. The ⋯ menu has "Copy Markdown with title" if you want the heading too.
+- **Suggested alternatives:** highlight a word, phrase or sentence and click the **Alternatives** chip (or press ⌘J) to get five rewordings from Claude. Click one, or press 1–5, to swap it in; ⌘Z undoes it. This needs an Anthropic API key in a `.env` file at the project root (it's git-ignored):
+  ```
+  ANTHROPIC_API_KEY=sk-ant-…
+  ```
 - Deleted articles go to `articles/.trash/`.
 
 | Shortcut | Action |
@@ -31,6 +35,7 @@ npm start        # opens the writer at http://localhost:4321
 | ⌘⇧8 / ⌘⇧7 / ⌘⇧9 | Bulleted / numbered / checklist |
 | ⌘⇧. | Quote |
 | Tab / ⇧Tab | Indent / outdent list items |
+| ⌘J | Suggest alternatives for the highlighted text |
 | ⌘S | Save now |
 | ⌘/ | Cycle Write → Split → Preview |
 | ⌘. | Focus mode (Esc to leave) |
@@ -46,10 +51,11 @@ npm run build    # renders Published articles to dist/ (index + one page per art
 
 ## Under the hood
 
-No dependencies — just Node 18+.
+Node 22.9+ and one dependency, the Anthropic SDK (`npm install`).
 
 - `editor/lib/markdown.js` — the Markdown renderer, shared by the browser and the build
 - `editor/server.js` — local server and file API (listens on 127.0.0.1 only)
+- `editor/lib/suggest.js` — rewording suggestions via the Claude API
 - `editor/build.js` — static site build
 - `editor/public/` — the editor UI; `article.css` is used by both the preview and published pages
 - `npm test` — renderer tests

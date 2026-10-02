@@ -4,3 +4,4 @@ dist/
 articles/.trash/
 *.tmp
 .basecamp/
+.env

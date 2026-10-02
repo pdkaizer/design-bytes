@@ -4,12 +4,15 @@
   "private": true,
   "description": "Markdown writing engine for Design Bytes articles",
   "scripts": {
-    "start": "node editor/server.js --open",
-    "dev": "node editor/server.js",
+    "start": "node --env-file-if-exists=.env editor/server.js --open",
+    "dev": "node --env-file-if-exists=.env editor/server.js",
     "build": "node editor/build.js",
     "test": "node --test editor/test/*.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.9"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0"
   }
 }

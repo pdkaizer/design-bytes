@@ -355,19 +355,28 @@
 
   // Measure where a character sits inside the textarea (for scrolling to it).
   const mirror = document.createElement('div');
-  function caretTop(pos) {
+  function caretOffset(pos) {
     const cs = getComputedStyle(ed);
     mirror.style.cssText = `position:absolute;visibility:hidden;top:0;left:-9999px;white-space:pre-wrap;` +
       `overflow-wrap:break-word;box-sizing:border-box;width:${ed.clientWidth}px;font:${cs.font};` +
       `letter-spacing:${cs.letterSpacing};padding:${cs.padding};tab-size:${cs.tabSize};`;
     mirror.textContent = ed.value.slice(0, pos);
     const mark = document.createElement('span');
-    mark.textContent = '​';
+    mark.textContent = '\u200b';
     mirror.append(mark);
     document.body.append(mirror);
-    const top = mark.offsetTop;
+    const offset = { top: mark.offsetTop, left: mark.offsetLeft, height: mark.offsetHeight };
     mirror.remove();
-    return top;
+    return offset;
+  }
+
+  const caretTop = (pos) => caretOffset(pos).top;
+
+  // Where a character sits on screen, in viewport coordinates.
+  function caretPoint(pos) {
+    const o = caretOffset(pos);
+    const r = ed.getBoundingClientRect();
+    return { x: r.left + o.left - ed.scrollLeft, y: r.top + o.top - ed.scrollTop, height: o.height };
   }
 
   function goTo(line, column = 1, length = 0) {
@@ -501,6 +510,7 @@
     ol: () => toggleLines(/^(\s*)\d+[.)][ \t]+/, (t, n) => `${n}. ${t}`),
     task: () => toggleLines(/^(\s*)[-*+][ \t]+\[[ xX]\][ \t]+/, (t) => `- [ ] ${t}`),
     hr: () => insertBlock('---'),
+    suggest: () => openSuggest(),
     font: () => setFont(FONTS[(FONTS.indexOf(prefs.get('font', 'mono')) + 1) % FONTS.length]),
   };
 
@@ -559,7 +569,7 @@
     else if (e.shiftKey && e.code === 'Digit9') cmd = 'task';
     else if (e.shiftKey && e.code === 'Period') cmd = 'quote';
     else if (e.shiftKey && key === 'x') cmd = 'strike';
-    else if (!e.shiftKey && !e.altKey) cmd = { b: 'bold', i: 'italic', k: 'link', e: 'code' }[key] || null;
+    else if (!e.shiftKey && !e.altKey) cmd = { b: 'bold', i: 'italic', k: 'link', e: 'code', j: 'suggest' }[key] || null;
     if (cmd) {
       e.preventDefault();
       commands[cmd]();
@@ -607,6 +617,171 @@
   el.stageSelect.addEventListener('change', () => {
     if (state.doc) setArticleStatus(el.stageSelect.value);
   });
+
+  // ---------------------------------------------------------------------------
+  // Suggested alternatives — highlight text, then click the chip or press ⌘J
+
+  const sug = {
+    chip: $('#suggest-chip'),
+    panel: $('#suggest'),
+    list: $('#suggest-list'),
+    quote: $('#suggest-quote'),
+    range: null, // { start, end, text } being reworded
+    request: 0,
+  };
+  const MAX_SUGGEST = 1500;
+
+  // The current selection, trimmed of surrounding whitespace.
+  function selectedRange() {
+    const v = ed.value;
+    let s = ed.selectionStart;
+    let e = ed.selectionEnd;
+    while (s < e && /\s/.test(v[s])) s++;
+    while (e > s && /\s/.test(v[e - 1])) e--;
+    return e > s ? { start: s, end: e, text: v.slice(s, e) } : null;
+  }
+
+  function placeBelow(node, pos, gap = 6) {
+    const p = caretPoint(pos);
+    const r = ed.getBoundingClientRect();
+    node.style.visibility = 'hidden';
+    node.hidden = false;
+    const w = node.offsetWidth;
+    const h = node.offsetHeight;
+    let x = Math.min(Math.max(8, p.x - 12), window.innerWidth - w - 8);
+    let y = p.y + p.height + gap;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, p.y - h - gap); // flip above
+    const visible = p.y >= r.top - p.height && p.y <= r.bottom;
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+    node.style.visibility = '';
+    return visible;
+  }
+
+  let chipFrame = 0;
+  function updateChip() {
+    cancelAnimationFrame(chipFrame);
+    chipFrame = requestAnimationFrame(() => {
+      const range = document.activeElement === ed && state.doc && sug.panel.hidden ? selectedRange() : null;
+      if (!range || range.text.length > MAX_SUGGEST) { sug.chip.hidden = true; return; }
+      if (!placeBelow(sug.chip, ed.selectionEnd)) sug.chip.hidden = true;
+    });
+  }
+
+  function paragraphAround(start, end) {
+    const v = ed.value;
+    const from = v.lastIndexOf('\n\n', start - 1);
+    const to = v.indexOf('\n\n', end);
+    return {
+      before: v.slice(from === -1 ? md.frontMatter(v).end : from + 2, start),
+      after: v.slice(end, to === -1 ? v.length : to),
+    };
+  }
+
+  async function openSuggest() {
+    if (!state.doc) return;
+    const range = selectedRange();
+    if (!range) { toast('Highlight a word, phrase or sentence first'); return; }
+    if (range.text.length > MAX_SUGGEST) { toast('That’s a lot of text — highlight a sentence or two at most'); return; }
+
+    sug.range = range;
+    sug.chip.hidden = true;
+    sug.quote.textContent = range.text.length > 140 ? `${range.text.slice(0, 140)}…` : range.text;
+    showSuggestState('loading');
+    placeBelow(sug.panel, range.end, 8);
+
+    const id = ++sug.request;
+    try {
+      const r = await api('POST', '/api/suggest', {
+        selection: range.text,
+        ...paragraphAround(range.start, range.end),
+        title: md.title(ed.value),
+      });
+      if (id !== sug.request || sug.panel.hidden) return;
+      if (!r.suggestions.length) showSuggestState('error', 'No alternatives came back — try again.');
+      else renderSuggestions(r.suggestions);
+    } catch (err) {
+      if (id === sug.request && !sug.panel.hidden) showSuggestState('error', err.message);
+    }
+    if (!sug.panel.hidden) placeBelow(sug.panel, range.end, 8);
+  }
+
+  function showSuggestState(kind, message = '') {
+    const p = document.createElement('p');
+    p.className = `suggest-${kind}`;
+    p.textContent = kind === 'loading' ? 'Finding alternatives…' : message;
+    sug.list.replaceChildren(p);
+    sug.panel.dataset.state = kind;
+  }
+
+  function renderSuggestions(items) {
+    sug.panel.dataset.state = 'ready';
+    sug.list.replaceChildren(...items.slice(0, 9).map((item, i) => {
+      const b = document.createElement('button');
+      b.className = 'suggestion';
+      b.setAttribute('role', 'option');
+      const key = document.createElement('kbd');
+      key.textContent = i + 1;
+      const text = document.createElement('span');
+      text.className = 'suggestion-text';
+      text.textContent = item.text;
+      const note = document.createElement('span');
+      note.className = 'suggestion-note';
+      note.textContent = item.note;
+      b.append(key, text, note);
+      b.addEventListener('click', () => applySuggestion(item.text));
+      return b;
+    }));
+  }
+
+  function applySuggestion(text) {
+    const range = sug.range;
+    closeSuggest();
+    if (!range) return;
+    let { start, end } = range;
+    // The text may have shifted if the article was edited meanwhile; find it again.
+    if (ed.value.slice(start, end) !== range.text) {
+      const near = ed.value.indexOf(range.text, Math.max(0, start - 200));
+      const at = near > -1 ? near : ed.value.indexOf(range.text);
+      if (at === -1) { toast('The highlighted text changed — highlight it again'); return; }
+      start = at;
+      end = at + range.text.length;
+    }
+    replaceRange(start, end, text, start, start + text.length);
+    toast('Replaced — ⌘Z to undo');
+  }
+
+  function closeSuggest() {
+    sug.panel.hidden = true;
+    sug.request++;
+  }
+
+  sug.chip.addEventListener('mousedown', (e) => e.preventDefault()); // keep the selection
+  sug.chip.addEventListener('click', openSuggest);
+  $('#suggest-retry').addEventListener('click', () => {
+    if (!sug.range) return;
+    ed.setSelectionRange(sug.range.start, sug.range.end);
+    openSuggest();
+  });
+  sug.panel.addEventListener('mousedown', (e) => { if (e.target.closest('button')) e.preventDefault(); });
+
+  document.addEventListener('selectionchange', updateChip);
+  ed.addEventListener('scroll', () => { sug.chip.hidden = true; if (!sug.panel.hidden) closeSuggest(); });
+  ed.addEventListener('input', () => { sug.chip.hidden = true; });
+  ed.addEventListener('blur', () => { sug.chip.hidden = true; });
+  window.addEventListener('resize', () => { sug.chip.hidden = true; closeSuggest(); });
+  document.addEventListener('mousedown', (e) => {
+    if (!sug.panel.hidden && !e.target.closest('#suggest')) closeSuggest();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (sug.panel.hidden || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (/^[1-9]$/.test(e.key) && sug.panel.dataset.state === 'ready') {
+      const pick = sug.list.querySelectorAll('.suggestion')[Number(e.key) - 1];
+      if (pick) { e.preventDefault(); pick.click(); }
+    } else if (e.key !== 'Escape' && e.key !== 'Shift' && e.key !== 'Tab') {
+      closeSuggest(); // typing carries on as normal
+    }
+  }, true);
 
   // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
@@ -895,6 +1070,7 @@
   document.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === 'Escape') {
+      if (!sug.panel.hidden) { closeSuggest(); ed.focus(); return; }
       if (!el.menu.hidden) { toggleMenu(false); el.menuBtn.focus(); return; }
       if (!el.issues.hidden) { el.issues.hidden = true; return; }
       if (body.classList.contains('focus')) { toggleFocus(false); return; }

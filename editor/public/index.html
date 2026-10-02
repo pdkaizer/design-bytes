@@ -101,6 +101,8 @@
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="5" height="5" rx="1"/><path d="m3.7 6 1 1 1.8-2"/><rect x="2.5" y="11.5" width="5" height="5" rx="1"/><path d="M10 6h7M10 14h7"/></svg>
       </button>
       <button data-cmd="hr" title="Divider">—</button>
+      <span class="sep"></span>
+      <button data-cmd="suggest" title="Suggest alternatives for the highlighted text (⌘J)"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.5c.3 2.9 1.1 4.6 2.2 5.6 1 1 2.6 1.6 5.3 1.9-2.7.3-4.3.9-5.3 1.9-1.1 1-1.9 2.7-2.2 5.6-.3-2.9-1.1-4.6-2.2-5.6-1-1-2.6-1.6-5.3-1.9 2.7-.3 4.3-.9 5.3-1.9 1.1-1 1.9-2.7 2.2-5.6Z"/><path d="M16 1.5c.1.9.4 1.4.7 1.8.4.3.9.5 1.8.7-.9.1-1.4.4-1.8.7-.3.4-.6.9-.7 1.8-.1-.9-.4-1.4-.7-1.8-.4-.3-.9-.6-1.8-.7.9-.2 1.4-.4 1.8-.7.3-.4.6-.9.7-1.8Z"/></svg></button>
       <span class="grow"></span>
       <button data-cmd="font" id="font-btn" title="Editor font">Aa</button>
     </div>
@@ -139,6 +141,19 @@
 
 <button class="focus-exit" id="focus-exit">Exit focus · Esc</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<button class="suggest-chip" id="suggest-chip" hidden title="Suggest alternatives (⌘J)"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.5c.3 2.9 1.1 4.6 2.2 5.6 1 1 2.6 1.6 5.3 1.9-2.7.3-4.3.9-5.3 1.9-1.1 1-1.9 2.7-2.2 5.6-.3-2.9-1.1-4.6-2.2-5.6-1-1-2.6-1.6-5.3-1.9 2.7-.3 4.3-.9 5.3-1.9 1.1-1 1.9-2.7 2.2-5.6Z"/><path d="M16 1.5c.1.9.4 1.4.7 1.8.4.3.9.5 1.8.7-.9.1-1.4.4-1.8.7-.3.4-.6.9-.7 1.8-.1-.9-.4-1.4-.7-1.8-.4-.3-.9-.6-1.8-.7.9-.2 1.4-.4 1.8-.7.3-.4.6-.9.7-1.8Z"/></svg><span>Alternatives</span></button>
+<div class="suggest" id="suggest" role="dialog" aria-label="Suggested alternatives" hidden>
+  <div class="suggest-head">
+    <span class="suggest-label">Alternatives for</span>
+    <q id="suggest-quote"></q>
+  </div>
+  <div class="suggest-list" id="suggest-list" role="listbox"></div>
+  <div class="suggest-foot">
+    <span>Click or press 1–5 to replace · Esc to close</span>
+    <button id="suggest-retry">Try again</button>
+  </div>
+</div>
 
 <dialog id="dialog">
   <form method="dialog">

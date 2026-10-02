@@ -4,6 +4,7 @@
 // Design Bytes Writer — a local, dependency-free server for the editor.
 //   npm start            → http://localhost:4321
 //   PORT=5000 npm start  → pick another port
+// Settings such as ANTHROPIC_API_KEY can go in a .env file at the project root.
 
 const http = require('http');
 const fsp = require('fs').promises;
@@ -12,6 +13,7 @@ const { execFile } = require('child_process');
 const md = require('./lib/markdown');
 const store = require('./lib/store');
 const { renderArticle } = require('./lib/template');
+const { suggest } = require('./lib/suggest');
 
 const PORT = Number(process.env.PORT) || 4321;
 const HOST = '127.0.0.1';
@@ -206,6 +208,9 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === 'api') {
       if (parts[1] === 'articles' && parts.length <= 4) return await articlesApi(req, res, parts[2], parts[3]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
+      if (parts[1] === 'suggest' && parts.length === 2 && req.method === 'POST') {
+        return json(res, 200, await suggest(await readJson(req)));
+      }
       throw httpError(404, 'Not found');
     }
     return await serveStatic(req, res, pathname);
