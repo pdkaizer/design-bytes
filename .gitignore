@@ -2,6 +2,7 @@
 node_modules/
 dist/
 articles/.trash/
+articles/.history/
 *.tmp
 .basecamp/
 .env

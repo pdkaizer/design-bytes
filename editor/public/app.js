@@ -178,6 +178,7 @@
   }
 
   function load(article) {
+    closeHistory();
     state.doc = { slug: article.slug, saved: article.content, mtime: article.mtime };
     hideConflict();
     setFileText(article.content);
@@ -194,6 +195,7 @@
   }
 
   function closeDoc() {
+    closeHistory();
     state.doc = null;
     setFileText('');
     body.classList.add('empty');
@@ -313,6 +315,7 @@
       const s = md.stats(text);
       el.stats.textContent = `${s.words.toLocaleString()} words · ${s.minutes} min read`;
 
+      renderReadability();
       state.issues = md.lint(text);
       el.issuesBtn.hidden = !state.issues.length;
       el.issuesBtn.textContent = `${state.issues.length} ${state.issues.length === 1 ? 'suggestion' : 'suggestions'}`;
@@ -507,6 +510,7 @@
     if (font !== 'mono') body.classList.add(`font-${font}`);
     $('#font-btn').title = `Editor font: ${font}`;
     prefs.set('font', font);
+    if (typeof renderReadability === 'function') renderReadability();
   }
 
   const commands = {
@@ -954,6 +958,395 @@
   $('#notes-close').addEventListener('click', () => toggleNotes(false));
 
   // ---------------------------------------------------------------------------
+  // Version history — kept by the server in articles/.history/<slug>/
+
+  const hist = { items: [], selected: null, content: '', tab: 'changes', expanded: new Set() };
+  const historyOpen = () => !$('#history').hidden;
+  const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+  const dayFmt = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const fullFmt = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+  function dayLabel(ms) {
+    const d = new Date(ms);
+    const today = new Date();
+    const yesterday = new Date(Date.now() - 864e5);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return dayFmt.format(d);
+  }
+
+  async function openHistory(selectId) {
+    if (!state.doc) return;
+    await save();
+    closeSuggest();
+    $('#history').hidden = false;
+    body.classList.add('history-open');
+    $('#history-btn').setAttribute('aria-pressed', 'true');
+    await loadVersions(selectId);
+  }
+
+  function closeHistory() {
+    if (!historyOpen()) return;
+    $('#history').hidden = true;
+    body.classList.remove('history-open');
+    $('#history-btn').setAttribute('aria-pressed', 'false');
+    if (state.doc) ed.focus();
+  }
+
+  async function loadVersions(selectId) {
+    const slug = state.doc.slug;
+    try {
+      hist.items = await api('GET', `/api/articles/${enc(slug)}/history`);
+    } catch (err) {
+      hist.items = [];
+      toast(`Couldn’t load history: ${err.message}`);
+    }
+    if (state.doc?.slug !== slug) return;
+    renderVersions();
+    const pick = hist.items.find((v) => v.id === selectId) || hist.items[0];
+    if (pick) selectVersion(pick.id);
+    else showNoVersions();
+  }
+
+  function renderVersions() {
+    const nodes = [];
+    let lastDay = '';
+    for (const v of hist.items) {
+      const day = dayLabel(v.time);
+      if (day !== lastDay) {
+        const h = document.createElement('div');
+        h.className = 'history-day';
+        h.textContent = day;
+        nodes.push(h);
+        lastDay = day;
+      }
+      const b = document.createElement('button');
+      b.className = 'version';
+      b.dataset.id = v.id;
+      b.setAttribute('role', 'option');
+      b.setAttribute('aria-selected', String(v.id === hist.selected));
+      const time = document.createElement('span');
+      time.className = 'version-time';
+      time.textContent = timeFmt.format(v.time);
+      b.append(time);
+      if (v.label) {
+        const label = document.createElement('span');
+        label.className = 'version-label';
+        label.textContent = v.label;
+        b.append(label);
+      }
+      const meta = document.createElement('span');
+      meta.className = 'version-meta';
+      meta.textContent = `${v.words.toLocaleString()} words`;
+      b.append(meta);
+      nodes.push(b);
+    }
+    $('#history-list').replaceChildren(...nodes);
+  }
+
+  function showNoVersions() {
+    hist.selected = null;
+    hist.content = '';
+    const p = document.createElement('p');
+    p.className = 'history-empty';
+    p.textContent = 'No earlier versions yet. While you edit, the writer keeps a version every few minutes — and you can save a named one any time.';
+    $('#history-list').replaceChildren(p);
+    $('#history-title').textContent = 'Current text';
+    $('#history-sub').textContent = '';
+    $('#history-legend').textContent = '';
+    $('#history-body').replaceChildren();
+    $('#history-restore').disabled = true;
+    $('#history-copy').disabled = true;
+  }
+
+  async function selectVersion(id) {
+    const v = hist.items.find((x) => x.id === id);
+    if (!v) return;
+    hist.selected = id;
+    hist.expanded.clear();
+    document.querySelectorAll('.version').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.id === id)));
+    $('#history-title').textContent = fullFmt.format(v.time);
+    $('#history-sub').textContent = [v.label && `“${v.label}”`, `${v.words.toLocaleString()} words`, ago(v.time)].filter(Boolean).join(' · ');
+    $('#history-restore').disabled = false;
+    $('#history-copy').disabled = false;
+    try {
+      const r = await api('GET', `/api/articles/${enc(state.doc.slug)}/history/${enc(id)}`);
+      if (hist.selected !== id) return;
+      hist.content = r.content;
+      renderVersion();
+    } catch (err) {
+      toast(`Couldn’t open that version: ${err.message}`);
+    }
+  }
+
+  function diffParagraph(block) {
+    const p = document.createElement('p');
+    if (block.type === 'change') {
+      for (const part of block.parts) {
+        if (part.type === 'same') { p.append(part.text); continue; }
+        const mark = document.createElement(part.type === 'add' ? 'ins' : 'del');
+        mark.textContent = part.text;
+        p.append(mark);
+      }
+    } else {
+      if (block.type !== 'same') p.className = `d-${block.type}`;
+      p.textContent = block.text;
+    }
+    return p;
+  }
+
+  function renderVersion() {
+    const view = $('#history-body');
+    const legend = $('#history-legend');
+    document.querySelectorAll('#history-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === hist.tab)));
+
+    if (hist.tab === 'preview') {
+      legend.textContent = '';
+      const article = document.createElement('article');
+      article.className = 'article';
+      article.innerHTML = md.render(hist.content);
+      view.replaceChildren(article);
+      return;
+    }
+
+    const blocks = md.diffText(hist.content, fileText());
+    if (!blocks.some((b) => b.type !== 'same')) {
+      legend.textContent = '';
+      const same = document.createElement('p');
+      same.className = 'diff-same-note';
+      same.textContent = 'This version is identical to your current text.';
+      view.replaceChildren(same);
+      return;
+    }
+    legend.innerHTML = 'Compared with your current text: <ins>added since</ins> · <del>removed since</del>';
+
+    // Collapse long unchanged stretches, keeping a paragraph of context around each change.
+    const diff = document.createElement('div');
+    diff.className = 'diff';
+    for (let k = 0; k < blocks.length;) {
+      if (blocks[k].type !== 'same') { diff.append(diffParagraph(blocks[k])); k++; continue; }
+      let j = k;
+      while (j < blocks.length && blocks[j].type === 'same') j++;
+      const run = blocks.slice(k, j);
+      const keepStart = k === 0 ? 0 : 1;
+      const keepEnd = j === blocks.length ? 0 : 1;
+      const hidden = run.length - keepStart - keepEnd;
+      if (hidden > 1 && !hist.expanded.has(k)) {
+        run.slice(0, keepStart).forEach((b) => diff.append(diffParagraph(b)));
+        const skip = document.createElement('button');
+        skip.className = 'diff-skip';
+        skip.textContent = `⋯ ${hidden} unchanged paragraphs`;
+        const at = k;
+        skip.addEventListener('click', () => {
+          const top = view.scrollTop;
+          hist.expanded.add(at);
+          renderVersion();
+          view.scrollTop = top;
+        });
+        diff.append(skip);
+        run.slice(run.length - keepEnd).forEach((b) => diff.append(diffParagraph(b)));
+      } else {
+        run.forEach((b) => diff.append(diffParagraph(b)));
+      }
+      k = j;
+    }
+    view.replaceChildren(diff);
+  }
+
+  async function restoreVersion() {
+    const v = hist.items.find((x) => x.id === hist.selected);
+    if (!v || !state.doc) return;
+    if (hist.content === fileText()) { toast('That version is the same as your current text'); return; }
+    const when = `${dayLabel(v.time).toLowerCase()}, ${timeFmt.format(v.time)}`;
+    const safety = `Before restoring ${when}`;
+    try {
+      // Keep the current text first, so restoring can itself be undone.
+      await save();
+      await api('POST', `/api/articles/${enc(state.doc.slug)}/history`, { label: safety });
+    } catch (err) {
+      toast(`Couldn’t save your current text first, so nothing was restored: ${err.message}`);
+      return;
+    }
+    setFileText(hist.content);
+    refresh(true);
+    await save();
+    closeHistory();
+    toast(`Restored the version from ${when}. Your previous text is in history as “${safety}”.`);
+  }
+
+  async function saveNamedVersion() {
+    const label = await ask({
+      title: 'Save a named version', label: 'Name', placeholder: 'e.g. Before restructuring', confirm: 'Save',
+      hint: 'Named versions are kept for good; automatic ones thin out over time.',
+    });
+    if (!label || !state.doc) return;
+    try {
+      await save();
+      const r = await api('POST', `/api/articles/${enc(state.doc.slug)}/history`, { label });
+      if (historyOpen()) await loadVersions(r.id);
+      toast(`Saved version “${label}”`);
+    } catch (err) {
+      toast(`Couldn’t save the version: ${err.message}`);
+    }
+  }
+
+  $('#history-list').addEventListener('click', (e) => {
+    const id = e.target.closest('[data-id]')?.dataset.id;
+    if (id) selectVersion(id);
+  });
+  $('#history-tabs').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-tab]')?.dataset.tab;
+    if (!tab || !hist.selected) return;
+    hist.tab = tab;
+    renderVersion();
+  });
+  $('#history-restore').addEventListener('click', restoreVersion);
+  $('#history-copy').addEventListener('click', async () => {
+    toast(await copyText(hist.content) ? 'Copied this version’s text' : 'Clipboard not available');
+  });
+  $('#history-save').addEventListener('click', saveNamedVersion);
+  $('#history-close').addEventListener('click', closeHistory);
+  $('#history-btn').addEventListener('click', () => (historyOpen() ? closeHistory() : openHistory()));
+
+  // ---------------------------------------------------------------------------
+  // Readability highlights — drawn on a layer behind the transparent textarea
+
+  const READ_CATS = [
+    { kind: 'very-long', name: 'Very long sentences (35+ words)', swatch: 'background: var(--r-very)' },
+    { kind: 'long', name: 'Long sentences (25+ words)', swatch: 'background: var(--r-long)' },
+    { kind: 'passive', name: 'Passive voice', swatch: 'border-color: var(--r-passive)', line: true },
+    { kind: 'adverb', name: 'Adverbs', swatch: 'border-color: var(--r-adverb)', line: true },
+    { kind: 'wordy', name: 'Wordy phrases & filler', swatch: 'border-color: var(--r-wordy)', line: true },
+  ];
+  const read = {
+    backdrop: $('#read-backdrop'),
+    layer: $('#read-layer'),
+    on: prefs.get('readability', false),
+    off: new Set(prefs.get('readability-off', [])), // categories switched off
+    result: null,
+  };
+
+  const GRADE_WORDS = [[6, 'Very easy to read'], [8, 'Easy to read'], [10, 'Plain English — good for most readers'],
+    [12, 'Fairly hard — fine for an essay'], [Infinity, 'Hard to read — consider shorter sentences']];
+
+  function renderReadability() {
+    const showing = read.on && state.doc && !(body.dataset.mode === 'preview' && !body.classList.contains('focus'));
+    if (!state.doc) { read.result = null; return; }
+    if (!read.on && $('#read-panel').hidden) { read.backdrop.hidden = true; updateReadPanel(); return; } // nothing to show
+    const text = ed.value;
+    read.result = md.readability(text);
+    updateReadPanel();
+    if (!showing) { read.backdrop.hidden = true; read.layer.textContent = ''; return; }
+
+    // Cut the text at every highlight boundary and wrap each piece in the kinds that cover it.
+    const issues = read.result.issues.filter((i) => !read.off.has(i.kind));
+    const points = [...new Set([0, text.length, ...issues.flatMap((i) => [i.start, i.end])])].sort((a, b) => a - b);
+    const esc = md.escape;
+    let html = '';
+    let open = [];
+    let next = 0; // issues are sorted by start
+    for (let k = 0; k < points.length - 1; k++) {
+      const a = points[k];
+      const b = points[k + 1];
+      while (next < issues.length && issues[next].start <= a) open.push(issues[next++]);
+      open = open.filter((i) => i.end > a);
+      const kinds = [...new Set(open.filter((i) => i.end >= b).map((i) => `r-${i.kind}`))];
+      const piece = esc(text.slice(a, b));
+      html += kinds.length ? `<span class="${kinds.join(' ')}">${piece}</span>` : piece;
+    }
+    read.layer.innerHTML = `${html}\n `;
+    read.backdrop.hidden = false;
+    syncReadLayer();
+    updateReadHint();
+  }
+
+  // Keep the layer's box, font and scroll position identical to the textarea's.
+  function syncReadLayer() {
+    if (read.backdrop.hidden) return;
+    const cs = getComputedStyle(ed);
+    Object.assign(read.backdrop.style, {
+      left: `${ed.offsetLeft}px`, top: `${ed.offsetTop}px`, width: `${ed.clientWidth}px`, height: `${ed.clientHeight}px`,
+    });
+    Object.assign(read.layer.style, {
+      width: `${ed.clientWidth}px`, font: cs.font, letterSpacing: cs.letterSpacing, padding: cs.padding, tabSize: cs.tabSize,
+      transform: `translateY(${-ed.scrollTop}px)`,
+    });
+  }
+
+  function updateReadHint() {
+    const hint = $('#read-hint');
+    if (!read.on || !read.result || document.activeElement !== ed) { hint.textContent = ''; return; }
+    const pos = ed.selectionStart;
+    const here = read.result.issues
+      .filter((i) => !read.off.has(i.kind) && i.start <= pos && pos <= i.end)
+      .sort((a, b) => (a.end - a.start) - (b.end - b.start)); // the most specific first
+    hint.textContent = here.length ? here.map((i) => i.message).slice(0, 2).join(' · ') : '';
+  }
+
+  function updateReadPanel() {
+    const r = read.result;
+    const btn = $('#read-btn');
+    btn.setAttribute('aria-pressed', String(read.on));
+    btn.querySelector('span').textContent = read.on && r?.sentences ? `Readability · grade ${r.grade}` : 'Readability';
+    if ($('#read-panel').hidden || !r) return;
+    $('#read-on').checked = read.on;
+    $('#read-panel').classList.toggle('off', !read.on);
+    const words = GRADE_WORDS.find(([max]) => r.grade <= max)[1];
+    $('#read-grade').innerHTML = r.sentences
+      ? `<b>Grade ${r.grade}</b> · ${md.escape(words)}<br>${r.sentences} sentences, ${(r.words / r.sentences).toFixed(0)} words on average`
+      : 'Nothing to measure yet.';
+    $('#read-cats').replaceChildren(...READ_CATS.map((c) => {
+      const row = document.createElement('label');
+      row.className = 'read-cat';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !read.off.has(c.kind);
+      box.addEventListener('change', () => {
+        if (box.checked) read.off.delete(c.kind); else read.off.add(c.kind);
+        prefs.set('readability-off', [...read.off]);
+        if (!read.on) setReadability(true); else renderReadability();
+      });
+      const swatch = document.createElement('span');
+      swatch.className = `swatch${c.line ? ' line' : ''}`;
+      swatch.style.cssText = c.swatch;
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = c.name;
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = r.issues.filter((i) => i.kind === c.kind).length;
+      row.append(box, swatch, name, count);
+      return row;
+    }));
+  }
+
+  function setReadability(on) {
+    read.on = on;
+    prefs.set('readability', on);
+    renderReadability();
+    if (!on) $('#read-hint').textContent = '';
+  }
+
+  $('#read-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const panel = $('#read-panel');
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) {
+      panel.style.left = `${Math.max(10, $('#read-btn').offsetLeft - 10)}px`;
+      // Opening the panel the first time also turns highlighting on.
+      if (!read.on && !prefs.get('readability-seen', false)) { prefs.set('readability-seen', true); setReadability(true); }
+      updateReadPanel();
+    }
+  });
+  $('#read-on').addEventListener('change', (e) => setReadability(e.target.checked));
+  ed.addEventListener('scroll', () => {
+    if (!read.backdrop.hidden) read.layer.style.transform = `translateY(${-ed.scrollTop}px)`;
+  });
+  document.addEventListener('selectionchange', () => { if (read.on) updateReadHint(); });
+  ed.addEventListener('blur', () => { $('#read-hint').textContent = ''; });
+  new ResizeObserver(() => { if (read.on) renderReadability(); }).observe(ed);
+
+  // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
 
   function stamp() {
@@ -1159,6 +1552,7 @@
     rename: renameDoc,
     export: exportDoc,
     'copy-md': () => copyMarkdown({ includeTitle: true }),
+    history: () => openHistory(),
     'copy-html': copyHtml,
     delete: deleteDoc,
   };
@@ -1178,6 +1572,7 @@
   document.addEventListener('click', (e) => {
     if (!el.menu.hidden && !e.target.closest('.menu-wrap')) toggleMenu(false);
     if (!el.issues.hidden && !e.target.closest('#issues')) el.issues.hidden = true;
+    if (!$('#read-panel').hidden && !e.target.closest('#read-panel, #read-btn')) $('#read-panel').hidden = true;
   });
 
   // ---------------------------------------------------------------------------
@@ -1241,8 +1636,11 @@
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === 'Escape') {
       if (!sug.panel.hidden) { closeSuggest(); ed.focus(); return; }
+      if (el.dialog.open) return;
+      if (historyOpen()) { closeHistory(); return; }
       if (!el.menu.hidden) { toggleMenu(false); el.menuBtn.focus(); return; }
       if (!el.issues.hidden) { el.issues.hidden = true; return; }
+      if (!$('#read-panel').hidden) { $('#read-panel').hidden = true; return; }
       if (body.classList.contains('focus')) { toggleFocus(false); return; }
     }
     if (!mod) return;

@@ -573,6 +573,275 @@
     return text.slice(0, text.lastIndexOf(' ', max)).replace(/[,;:.\s]+$/, '') + '…';
   }
 
+  // ---------------------------------------------------------------------------
+  // Comparing two versions of an article: paragraphs first, then words within
+  // paragraphs that changed.
+
+  // Longest-common-subsequence diff of two token lists → [['same'|'del'|'add', token], …].
+  function diffTokens(a, b) {
+    let start = 0;
+    while (start < a.length && start < b.length && a[start] === b[start]) start++;
+    let endA = a.length;
+    let endB = b.length;
+    while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) { endA--; endB--; }
+    const head = a.slice(0, start).map((t) => ['same', t]);
+    const tail = a.slice(endA).map((t) => ['same', t]);
+    const x = a.slice(start, endA);
+    const y = b.slice(start, endB);
+    const n = x.length;
+    const m = y.length;
+    const ops = [];
+    if (n * m > 4e6) { // too big to compare finely: show as replaced
+      x.forEach((t) => ops.push(['del', t]));
+      y.forEach((t) => ops.push(['add', t]));
+      return [...head, ...ops, ...tail];
+    }
+    const w = m + 1;
+    const dp = new Uint32Array((n + 1) * w);
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i * w + j] = x[i] === y[j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (x[i] === y[j]) { ops.push(['same', x[i]]); i++; j++; }
+      else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) ops.push(['del', x[i++]]);
+      else ops.push(['add', y[j++]]);
+    }
+    while (i < n) ops.push(['del', x[i++]]);
+    while (j < m) ops.push(['add', y[j++]]);
+    return [...head, ...ops, ...tail];
+  }
+
+  // Word-level changes within a paragraph → [{ type, text }], merged into runs.
+  function diffWords(a, b) {
+    const tokens = (s) => s.match(/\s+|[\p{L}\p{N}’'-]+|[^\s\p{L}\p{N}]/gu) || [];
+    const parts = [];
+    for (const [type, text] of diffTokens(tokens(a), tokens(b))) {
+      const last = parts[parts.length - 1];
+      if (last && last.type === type) last.text += text;
+      else parts.push({ type, text });
+    }
+    return parts;
+  }
+
+  // Compares two texts → blocks of { type: 'same'|'del'|'add', text } or
+  // { type: 'change', parts } for a paragraph that was edited.
+  function diffText(oldText, newText) {
+    const paras = (t) => String(t || '').replace(/\r\n?/g, '\n').split(/\n{2,}/).filter((p) => p.trim());
+    const ops = diffTokens(paras(oldText), paras(newText));
+    const out = [];
+    for (let k = 0; k < ops.length;) {
+      if (ops[k][0] === 'same') { out.push({ type: 'same', text: ops[k][1] }); k++; continue; }
+      const dels = [];
+      const adds = [];
+      while (k < ops.length && ops[k][0] !== 'same') { (ops[k][0] === 'del' ? dels : adds).push(ops[k][1]); k++; }
+      const paired = Math.min(dels.length, adds.length);
+      for (let p = 0; p < paired; p++) {
+        const parts = diffWords(dels[p], adds[p]);
+        const kept = parts.filter((x) => x.type === 'same').reduce((s, x) => s + x.text.length, 0);
+        // Only show as an edit if the paragraphs still have a fair amount in common.
+        if (kept >= 0.3 * Math.max(dels[p].length, adds[p].length)) out.push({ type: 'change', parts });
+        else out.push({ type: 'del', text: dels[p] }, { type: 'add', text: adds[p] });
+      }
+      dels.slice(paired).forEach((text) => out.push({ type: 'del', text }));
+      adds.slice(paired).forEach((text) => out.push({ type: 'add', text }));
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Readability: long sentences, passive voice, adverbs and wordy phrases, with
+  // character offsets into the source so the editor can highlight them.
+
+  const LONG_SENTENCE = 25;
+  const VERY_LONG_SENTENCE = 35;
+
+  const IRREGULAR_PARTICIPLES = new Set(('arisen awoken been beaten become begun bent bet bitten bled blown borne born bought bound broken ' +
+    'brought built burnt burst caught chosen clung come cost crept cut dealt done drawn dreamt driven drunk dug dwelt eaten ' +
+    'fallen fed felt fled flown forbidden forecast foregone foreseen forgiven forgotten forsaken fought found frozen given gone ' +
+    'got gotten grown hidden held hit hung hurt kept knelt known laid led left lent let lit lost made meant met mistaken overcome ' +
+    'overdone overheard overlooked overrun overseen overtaken overthrown paid proven put quit read rid ridden risen run said ' +
+    'seen sent set sewn shaken shed shone shot shown shrunk shut slain slept slid sold sought sown spent spoken spread sprung ' +
+    'stolen stood struck strung stuck stung sung sunk swept sworn swum swung taken taught thought thrown told torn understood ' +
+    'undertaken undone upheld upset withdrawn withheld woken won worn wound written').split(' '));
+
+  const NOT_ADVERBS = new Set(('ally anomaly apply assembly belly billy bully butterfly chilly comply costly curly daily dragonfly ' +
+    'early elderly emily family firefly fly folly friendly ghastly gully hilly holly holy homily imply italy jelly jolly july ' +
+    'kelly likely lily lively lonely lovely melancholy molly monopoly monthly multiply oily only orderly ply quarterly rally ' +
+    'rely reply sally silly sly smelly supply tally timely ugly unlikely weekly wily woolly yearly').split(' '));
+
+  // Wordy phrases and filler words → what to do instead.
+  const WORDY = [
+    [/\bin order to\b/gi, 'Wordy — “to” is enough'],
+    [/\bdue to the fact that\b/gi, 'Wordy — try “because”'],
+    [/\bin spite of the fact that\b/gi, 'Wordy — try “although”'],
+    [/\bat this point in time\b/gi, 'Wordy — try “now”'],
+    [/\bat the present time\b/gi, 'Wordy — try “now”'],
+    [/\bin the event that\b/gi, 'Wordy — try “if”'],
+    [/\bfor the purpose of\b/gi, 'Wordy — try “for” or “to”'],
+    [/\bwith regard to\b/gi, 'Wordy — try “about”'],
+    [/\bin regard to\b/gi, 'Wordy — try “about”'],
+    [/\bin terms of\b/gi, 'Often vague — say what you mean directly'],
+    [/\ba (?:large )?number of\b/gi, 'Wordy — try “many” or “several”'],
+    [/\ba lot of\b/gi, 'Vague — try “many”, “much” or a number'],
+    [/\beach and every\b/gi, 'Redundant — “each” or “every”'],
+    [/\bfirst and foremost\b/gi, 'Redundant — try “first”'],
+    [/\bprior to\b/gi, 'Simpler: “before”'],
+    [/\bsubsequent to\b/gi, 'Simpler: “after”'],
+    [/\butili[sz](?:e|es|ed|ing)\b/gi, 'Simpler: “use”'],
+    [/\bfacilitat(?:e|es|ed|ing)\b/gi, 'Simpler: “help” or “ease”'],
+    [/\bcommence(?:s|d)?\b/gi, 'Simpler: “start” or “begin”'],
+    [/\bit is important to note that\b/gi, 'Filler — cut it and just say the thing'],
+    [/\bit should be noted that\b/gi, 'Filler — cut it'],
+    [/\bneedless to say\b/gi, 'Filler — cut it'],
+    [/\bthe fact that\b/gi, 'Often wordy — can you cut it?'],
+    [/\b(?:very|really|quite|somewhat|actually|basically|literally|totally|simply)\b/gi, 'Filler — usually stronger without it'],
+    [/\bjust\b(?!\s+(?:as|like|because)\b)/gi, 'Filler — usually stronger without it'],
+    [/\brather\b(?!\s+than\b)/gi, 'Filler — usually stronger without it'],
+  ];
+
+  const ABBREVIATIONS = new Set('e.g i.e etc vs mr mrs ms dr prof st jr sr inc ltd co fig no approx u.s u.k'.split(' '));
+
+  function syllables(word) {
+    const w = word.toLowerCase().replace(/[^a-z]/g, '');
+    if (!w) return 0;
+    if (w.length <= 3) return 1;
+    const groups = w.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, '').match(/[aeiouy]{1,2}/g);
+    return Math.max(1, groups ? groups.length : 1);
+  }
+
+  // Replaces everything that isn't prose (front matter, code, headings, URLs,
+  // Markdown punctuation…) with spaces, keeping every offset the same.
+  function proseMask(src) {
+    const blank = (s) => s.replace(/[^\n]/g, ' ');
+    const fm = frontMatter(src);
+    let text = blank(src.slice(0, fm.end)) + src.slice(fm.end);
+    let fence = null;
+    let offset = 0;
+    const lines = text.split('\n').map((line) => {
+      const start = offset;
+      offset += line.length + 1;
+      if (start < fm.end) return line;
+      const f = line.match(RE.fence);
+      if (f && (!fence || f[1][0] === fence[0])) { fence = fence ? null : f[1]; return blank(line); }
+      if (fence || RE.atx.test(line) || RE.hr.test(line) || line.includes('|') || /^\s*(<!--|-->|!\[)/.test(line)) return blank(line);
+      return line
+        .replace(/^(\s*(?:>\s?)*)(?:[-*+]|\d+[.)])?\s*(?:\[[ xX]\]\s+)?/, blank); // quote / list markers
+    });
+    text = lines.join('\n');
+    return text
+      .replace(/`[^`\n]*`/g, blank)
+      .replace(/!\[[^\]\n]*\]\((?:[^()\s]|\([^)]*\))*(?:\s+"[^"]*")?\)/g, blank)
+      .replace(/\[([^\]\n]*)\]\((?:[^()\s]|\([^)]*\))*(?:\s+"[^"]*")?\)/g, (m, label) => ` ${label}${blank(m.slice(label.length + 1))}`)
+      .replace(/<[^>\n]*>/g, blank)
+      .replace(/\bhttps?:\/\/\S+/g, blank)
+      .replace(/[*_~\\]/g, ' ');
+  }
+
+  // Splits masked prose into paragraph-ish blocks, then sentences → [{ start, end, words }].
+  function sentences(src, mask) {
+    const out = [];
+    const blocks = [];
+    let start = null;
+    let offset = 0;
+    for (const line of src.split('\n')) {
+      const lineStart = offset;
+      offset += line.length + 1;
+      const masked = mask.slice(lineStart, lineStart + line.length);
+      const startsItem = /^\s*(?:[-*+]|\d+[.)]|>)\s/.test(line);
+      if (!masked.trim() || startsItem) {
+        if (start !== null) blocks.push([start, lineStart - 1]);
+        start = masked.trim() ? lineStart : null;
+      } else if (start === null) {
+        start = lineStart;
+      }
+    }
+    if (start !== null) blocks.push([start, src.length]);
+
+    const WORD = /[\p{L}\p{N}][\p{L}\p{N}’'-]*/gu;
+    for (const [from, to] of blocks) {
+      const block = mask.slice(from, to);
+      let cursor = 0;
+      const push = (a, b) => {
+        const piece = block.slice(a, b);
+        const lead = piece.length - piece.trimStart().length;
+        const body = piece.trim();
+        const words = (body.match(WORD) || []);
+        if (!words.length) return;
+        let begin = from + a + lead;
+        while (begin > from && /[*_~[]/.test(src[begin - 1])) begin--; // include opening **, _ or [
+        out.push({ start: begin, end: from + a + lead + body.length, words });
+      };
+      const END = /[.!?…]+["”’)\]]*(?=\s|$)/g;
+      let m;
+      while ((m = END.exec(block))) {
+        const before = block.slice(cursor, m.index).match(/([\p{L}.]+)$/u);
+        const word = before ? before[1].toLowerCase() : '';
+        if (m[0] === '.' && (ABBREVIATIONS.has(word.replace(/\.$/, '')) || /^\p{Lu}$/u.test(before?.[1] || ''))) continue;
+        push(cursor, m.index + m[0].length);
+        cursor = m.index + m[0].length;
+      }
+      push(cursor, block.length);
+    }
+    return out;
+  }
+
+  // → { grade, sentences, words, issues: [{ start, end, kind, message }] }, where kind is
+  //   'very-long' | 'long' | 'passive' | 'adverb' | 'wordy'. Offsets index into src.
+  function readability(src) {
+    const text = String(src || '');
+    const mask = proseMask(text);
+    const issues = [];
+
+    const list = sentences(text, mask);
+    let totalWords = 0;
+    let totalSyllables = 0;
+    for (const s of list) {
+      totalWords += s.words.length;
+      totalSyllables += s.words.reduce((n, w) => n + syllables(w), 0);
+      if (s.words.length >= VERY_LONG_SENTENCE) {
+        issues.push({ start: s.start, end: s.end, kind: 'very-long', message: `Very long sentence (${s.words.length} words) — try splitting it` });
+      } else if (s.words.length >= LONG_SENTENCE) {
+        issues.push({ start: s.start, end: s.end, kind: 'long', message: `Long sentence (${s.words.length} words) — could it be shorter?` });
+      }
+    }
+
+    const wordy = [];
+    for (const [re, message] of WORDY) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(mask))) wordy.push({ start: m.index, end: m.index + m[0].length, kind: 'wordy', message });
+    }
+    issues.push(...wordy);
+    const covered = (a, b) => wordy.some((w) => a < w.end && b > w.start);
+
+    const PASSIVE = /\b(am|is|are|was|were|be|been|being|get|gets|got|gotten)\s+(?:(\p{L}+ly)\s+)?(\p{L}+)\b/giu;
+    let m;
+    while ((m = PASSIVE.exec(mask))) {
+      const p = m[3].toLowerCase();
+      if (/ed$/.test(p) || IRREGULAR_PARTICIPLES.has(p)) {
+        issues.push({ start: m.index, end: m.index + m[0].length, kind: 'passive', message: 'Passive voice — who’s doing it? Try putting them first' });
+      }
+      PASSIVE.lastIndex = m.index + m[1].length; // allow overlaps like "is being built"
+    }
+
+    const ADVERB = /\b\p{L}+ly\b/giu;
+    while ((m = ADVERB.exec(mask))) {
+      const w = m[0].toLowerCase();
+      if (NOT_ADVERBS.has(w) || covered(m.index, m.index + w.length)) continue;
+      issues.push({ start: m.index, end: m.index + w.length, kind: 'adverb', message: 'Adverb — a stronger verb often does the job' });
+    }
+
+    issues.sort((a, b) => a.start - b.start || b.end - a.end);
+    const grade = list.length && totalWords
+      ? Math.max(0, Math.round(0.39 * (totalWords / list.length) + 11.8 * (totalSyllables / totalWords) - 15.59))
+      : 0;
+    return { grade, sentences: list.length, words: totalWords, issues };
+  }
+
   // Lightweight writing checks. Each issue: { line, column, length, message }.
   function lint(src) {
     const issues = [];
@@ -618,6 +887,6 @@
 
   return {
     render, inline, title, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, status, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, status, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
   };
 });

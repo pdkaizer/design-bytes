@@ -30,7 +30,9 @@ npm start        # opens the writer at http://localhost:4321
   A sentence I cut…
   -->
   ```
-- Deleted articles go to `articles/.trash/`.
+- **Version history:** the **History** button in the status bar (or ⋯ → Version history) lists earlier versions of the article by day. Pick one to see what's changed since (added and removed text highlighted) or a preview of how it read, then **Restore this version** if you want it back — your current text is saved as a version first, so restoring can be undone. While you edit, a version is kept every few minutes; you can also save a named one ("Before restructuring") any time. Versions live in `articles/.history/` (git-ignored, so drafts stay private). Older automatic versions thin out — everything from the last two days, then hourly for two weeks, then daily — while named versions are kept for good.
+- **Readability:** click **Readability** in the status bar to highlight long sentences (25+ words) and very long ones (35+), and underline passive voice, adverbs and wordy phrases or filler. Each type can be switched on or off, the button shows the article's reading grade (Flesch–Kincaid), and putting your cursor in a highlight shows why it's marked. Code, headings, link URLs, the status block and notes are ignored.
+- Deleted articles go to `articles/.trash/`, along with their history.
 
 | Shortcut | Action |
 | --- | --- |

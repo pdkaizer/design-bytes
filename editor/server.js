@@ -14,6 +14,7 @@ const md = require('./lib/markdown');
 const store = require('./lib/store');
 const { renderArticle } = require('./lib/template');
 const { suggest } = require('./lib/suggest');
+const history = require('./lib/history');
 
 const PORT = Number(process.env.PORT) || 4321;
 const HOST = '127.0.0.1';
@@ -81,7 +82,7 @@ function isTrusted(req) {
 // ---------------------------------------------------------------------------
 // API
 
-async function articlesApi(req, res, slug, action) {
+async function articlesApi(req, res, slug, action, versionId) {
   const method = req.method;
 
   if (!slug) {
@@ -110,6 +111,8 @@ async function articlesApi(req, res, slug, action) {
     if (stat && mtime != null && Math.abs(stat.mtimeMs - mtime) > 0.5) {
       return json(res, 409, { error: 'Article changed on disk', ...(await store.readArticle(slug)) });
     }
+    // Keep the text that's about to be replaced (at most every few minutes).
+    if (stat) await history.beforeWrite(slug, file, stat).catch((err) => console.error('history:', err));
     await store.writeAtomic(file, content);
     return json(res, 200, { slug, mtime: (await fsp.stat(file)).mtimeMs });
   }
@@ -118,6 +121,7 @@ async function articlesApi(req, res, slug, action) {
     await fsp.mkdir(store.TRASH, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     await fsp.rename(file, path.join(store.TRASH, `${slug}-${stamp}.md`));
+    await history.trash(slug, stamp).catch((err) => console.error('history:', err));
     return json(res, 200, { ok: true, trashed: `articles/.trash/${slug}-${stamp}.md` });
   }
 
@@ -128,8 +132,27 @@ async function articlesApi(req, res, slug, action) {
       if (await store.exists(store.articlePath(next))) throw httpError(409, `articles/${next}.md already exists`);
       await fsp.access(file);
       await fsp.rename(file, store.articlePath(next));
+      await history.rename(slug, next).catch((err) => console.error('history:', err));
     }
     return json(res, 200, await store.readArticle(next));
+  }
+
+  if (action === 'history') {
+    // GET  …/history        → list of versions, newest first
+    // GET  …/history/<id>   → one version's text
+    // POST …/history        → save the current file as a (named) version
+    if (!versionId && method === 'GET') return json(res, 200, await history.list(slug));
+    if (versionId && method === 'GET') {
+      if (!history.isId(versionId)) throw httpError(400, 'Invalid version');
+      return json(res, 200, { id: versionId, content: await history.read(slug, versionId) });
+    }
+    if (!versionId && method === 'POST') {
+      const { label } = await readJson(req);
+      const { content, mtime } = await store.readArticle(slug);
+      const id = await history.snapshot(slug, content, mtime, String(label || '').trim().slice(0, 120));
+      return json(res, 201, { id });
+    }
+    throw httpError(405, 'Method not allowed');
   }
 
   if (action === 'export' && method === 'GET') {
@@ -206,7 +229,7 @@ const server = http.createServer(async (req, res) => {
     const parts = pathname.split('/').filter(Boolean);
 
     if (parts[0] === 'api') {
-      if (parts[1] === 'articles' && parts.length <= 4) return await articlesApi(req, res, parts[2], parts[3]);
+      if (parts[1] === 'articles' && parts.length <= 5) return await articlesApi(req, res, parts[2], parts[3], parts[4]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
       if (parts[1] === 'suggest' && parts.length === 2 && req.method === 'POST') {
         return json(res, 200, await suggest(await readJson(req)));

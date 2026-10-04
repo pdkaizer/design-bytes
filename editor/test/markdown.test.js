@@ -158,3 +158,42 @@ test('findCutSpot finds where a cut came from, even after other edits', () => {
   // Gone entirely.
   assert.equal(md.findCutSpot('Completely different.', cut), -1);
 });
+
+test('diffText finds edited, added and removed paragraphs', () => {
+  const before = '# Title\n\nKeep this paragraph.\n\nThe quick brown fox jumps.\n\nDelete me entirely.';
+  const after = '# Title\n\nKeep this paragraph.\n\nThe quick red fox leaps.\n\nA brand new paragraph.';
+  const d = md.diffText(before, after);
+  assert.deepEqual(d.slice(0, 2).map((b) => b.type), ['same', 'same']);
+  assert.equal(d[2].type, 'change');
+  assert.deepEqual(d[2].parts.filter((p) => p.type !== 'same').map((p) => `${p.type}:${p.text}`),
+    ['del:brown', 'add:red', 'del:jumps', 'add:leaps']);
+  assert.deepEqual(d.slice(3).map((b) => `${b.type}:${b.text}`), ['del:Delete me entirely.', 'add:A brand new paragraph.']);
+  assert.deepEqual(md.diffText('Same.\n\nText.', 'Same.\n\nText.').map((b) => b.type), ['same', 'same']);
+});
+
+test('readability flags long sentences, passive voice, adverbs and wordy phrases', () => {
+  const long = Array.from({ length: 26 }, (_, i) => `word${i}`).join(' ') + '.';
+  const src = `---\nstatus: editing\n---\n\n# A heading that is not prose\n\nThe app was designed by a small team. It moved quickly.\n\nWe did this in order to ship. ${long}\n\n\`\`\`\ncode was written here\n\`\`\`\n`;
+  const r = md.readability(src);
+  const found = r.issues.map((i) => `${i.kind}:${src.slice(i.start, i.end)}`);
+  assert.ok(found.includes('passive:was designed'), found.join(' | '));
+  assert.ok(found.includes('adverb:quickly'));
+  assert.ok(found.includes('wordy:in order to'));
+  assert.ok(found.includes(`long:${long}`));
+  assert.ok(!found.some((f) => f.includes('heading') || f.includes('written')), 'headings and code are ignored');
+  assert.equal(r.sentences, 4);
+  assert.ok(r.grade > 0);
+});
+
+test('readability ignores link URLs and handles abbreviations', () => {
+  const src = 'Read [the essay](https://example.com/was-designed-quickly) today, e.g. on Sunday.';
+  const r = md.readability(src);
+  assert.equal(r.sentences, 1);
+  assert.deepEqual(r.issues, []);
+});
+
+test('readability: "just as" and "rather than" are not filler', () => {
+  const kinds = (s) => md.readability(s).issues.map((i) => s.slice(i.start, i.end));
+  assert.deepEqual(kinds('Just as Morris said, form rather than ornament.'), []);
+  assert.deepEqual(kinds('It was just rather good.'), ['just', 'rather']);
+});
