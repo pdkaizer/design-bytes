@@ -1,4 +1,4 @@
-/* Design Bytes Writer — editor chrome. Article typography lives in article.css. */
+/* DB Writer — editor chrome. Article typography lives in article.css. */
 
 :root {
   --ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -98,9 +98,16 @@ body.no-sidebar .app, body.focus .app { grid-template-columns: 0 minmax(0, 1fr);
   border-right: 1px solid var(--line);
 }
 body.no-sidebar .sidebar, body.focus .sidebar { visibility: hidden; }
-.brand { padding: 18px 18px 14px; }
-.brand img { display: block; height: 28px; width: auto; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 16px 18px 14px; }
+.brand img { display: block; width: 32px; height: 32px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line); }
+.brand h1 { margin: 0; color: var(--text); font: 700 21px/1 var(--ui); letter-spacing: -0.02em; }
 .sidebar-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
+.view-tabs { display: flex; margin: 0 12px 10px; }
+.view-tabs button { flex: 1; }
+.view-tabs .count { margin-left: 2px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Quick notes don't have a status, Ghost copy, or a notes panel of their own. */
+body[data-kind="notes"] :is(.stage, .copy-md, #notes-btn, .notes-panel, #chip-notes, [data-cmd="tonotes"]) { display: none !important; }
 
 #search {
   flex: 1;

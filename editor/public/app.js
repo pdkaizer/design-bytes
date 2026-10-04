@@ -1,4 +1,4 @@
-/* Design Bytes Writer — editor client. */
+/* DB Writer — editor client. */
 (() => {
   'use strict';
 
@@ -33,6 +33,8 @@
 
   const state = {
     articles: [],
+    notes: [], // quick notes
+    view: 'articles', // which list the sidebar shows
     doc: null, // { slug, saved, mtime }
     saveTimer: 0,
     saving: null,
@@ -83,10 +85,39 @@
     return 'just now';
   }
 
+  // Two kinds of document: articles (articles/) and quick notes (quick-notes/).
+  const KINDS = {
+    articles: { folder: 'articles', label: 'Articles', search: 'Search articles', empty: 'No articles yet' },
+    notes: { folder: 'quick-notes', label: 'Quick notes', search: 'Search quick notes', empty: 'No quick notes yet' },
+  };
+  const listOf = (kind) => (kind === 'notes' ? state.notes : state.articles);
+  const docUrl = (doc = state.doc) => `/api/${doc.kind}/${enc(doc.slug)}`;
+  const hashFor = (kind, slug) => (kind === 'notes' ? `#note/${slug}` : `#${slug}`);
+  const isOpen = (kind, slug) => state.doc?.kind === kind && state.doc?.slug === slug;
+  function parseHash() {
+    const h = decodeURIComponent(location.hash.slice(1));
+    if (!h) return null;
+    return h.startsWith('note/') ? { kind: 'notes', slug: h.slice(5) } : { kind: 'articles', slug: h };
+  }
+
   async function loadList() {
-    state.articles = await api('GET', '/api/articles');
+    [state.articles, state.notes] = await Promise.all([api('GET', '/api/articles'), api('GET', '/api/notes')]);
     renderList();
   }
+
+  function setView(view) {
+    state.view = view;
+    prefs.set('view', view);
+    el.search.placeholder = KINDS[view].search;
+    el.search.setAttribute('aria-label', KINDS[view].search);
+    $('#new').title = view === 'notes' ? 'New quick note' : 'New article';
+    renderList();
+  }
+
+  $('#view-tabs').addEventListener('click', (e) => {
+    const view = e.target.closest('[data-view]')?.dataset.view;
+    if (view && view !== state.view) setView(view);
+  });
 
   const STATUS_LABELS = { backlog: 'Backlog', editing: 'Editing', final: 'Final', published: 'Published' };
 
@@ -116,17 +147,24 @@
   });
 
   function renderList() {
-    renderFilters();
+    const view = state.view;
+    const notes = view === 'notes';
+    document.querySelectorAll('#view-tabs button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.view === view));
+      b.querySelector('.count').textContent = listOf(b.dataset.view).length;
+    });
+    el.filters.hidden = notes;
+    if (!notes) renderFilters();
     const q = el.search.value.trim().toLowerCase();
-    const filter = prefs.get('filter', 'all');
-    const shown = state.articles.filter((a) =>
+    const filter = notes ? 'all' : prefs.get('filter', 'all');
+    const shown = listOf(view).filter((a) =>
       (filter === 'all' || a.status === filter) &&
       (!q || a.title.toLowerCase().includes(q) || a.slug.includes(q) || (a.excerpt || '').toLowerCase().includes(q)));
 
     if (!shown.length) {
       const li = document.createElement('li');
       li.className = 'list-empty';
-      li.textContent = q ? 'No matches' : filter !== 'all' ? `Nothing in ${STATUS_LABELS[filter]}` : 'No articles yet';
+      li.textContent = q ? 'No matches' : filter !== 'all' ? `Nothing in ${STATUS_LABELS[filter]}` : KINDS[view].empty;
       el.list.replaceChildren(li);
       return;
     }
@@ -134,18 +172,23 @@
     el.list.replaceChildren(...shown.map((a) => {
       const li = document.createElement('li');
       const btn = document.createElement('button');
-      btn.className = 'item' + (state.doc?.slug === a.slug ? ' active' : '');
+      btn.className = 'item' + (isOpen(view, a.slug) ? ' active' : '');
       btn.dataset.slug = a.slug;
+      btn.dataset.kind = view;
       const title = document.createElement('span');
       title.className = 'item-title';
       title.textContent = a.title;
       const meta = document.createElement('span');
       meta.className = 'item-meta';
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.dataset.status = a.status;
-      badge.textContent = STATUS_LABELS[a.status];
-      meta.append(badge, ` · ${a.words.toLocaleString()} words · ${ago(a.mtime)}`);
+      if (notes) {
+        meta.textContent = `${ago(a.mtime)} · ${a.words.toLocaleString()} words`;
+      } else {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.dataset.status = a.status;
+        badge.textContent = STATUS_LABELS[a.status];
+        meta.append(badge, ` · ${a.words.toLocaleString()} words · ${ago(a.mtime)}`);
+      }
       btn.append(title, meta);
       li.append(btn);
       return li;
@@ -155,11 +198,11 @@
   // ---------------------------------------------------------------------------
   // Opening & saving
 
-  async function openArticle(slug) {
-    if (state.doc?.slug === slug) return;
+  async function openDoc(kind, slug) {
+    if (isOpen(kind, slug)) return;
     await save();
     try {
-      load(await api('GET', `/api/articles/${enc(slug)}`));
+      load(await api('GET', `/api/${kind}/${enc(slug)}`), kind);
       if (isMobile()) body.classList.remove('show-sidebar');
     } catch (err) {
       toast(`Couldn’t open ${slug}: ${err.message}`);
@@ -177,17 +220,19 @@
     renderCuts();
   }
 
-  function load(article) {
+  function load(article, kind = state.doc?.kind || 'articles') {
     closeHistory();
-    state.doc = { slug: article.slug, saved: article.content, mtime: article.mtime };
+    state.doc = { kind, slug: article.slug, saved: article.content, mtime: article.mtime };
+    body.dataset.kind = kind;
+    if (state.view !== kind) setView(kind);
     hideConflict();
     setFileText(article.content);
     ed.setSelectionRange(0, 0);
     ed.scrollTop = 0;
     el.previewPane.scrollTop = 0;
     body.classList.remove('empty');
-    prefs.set('last', article.slug);
-    history.replaceState(null, '', `#${article.slug}`);
+    prefs.set('last', { kind, slug: article.slug });
+    history.replaceState(null, '', hashFor(kind, article.slug));
     setStatus('saved');
     refresh(true);
     renderList();
@@ -197,11 +242,12 @@
   function closeDoc() {
     closeHistory();
     state.doc = null;
+    delete body.dataset.kind;
     setFileText('');
     body.classList.add('empty');
     el.title.textContent = 'design bytes';
     el.file.textContent = '';
-    document.title = 'Design Bytes Writer';
+    document.title = 'DB Writer';
     history.replaceState(null, '', location.pathname);
     renderList();
   }
@@ -231,10 +277,10 @@
     setStatus('saving');
     state.saving = (async () => {
       try {
-        const r = await api('PUT', `/api/articles/${enc(doc.slug)}`, { content, mtime: force ? null : doc.mtime });
+        const r = await api('PUT', docUrl(doc), { content, mtime: force ? null : doc.mtime });
         doc.saved = content;
         doc.mtime = r.mtime;
-        const entry = state.articles.find((a) => a.slug === doc.slug);
+        const entry = listOf(doc.kind).find((a) => a.slug === doc.slug);
         if (entry) entry.mtime = r.mtime;
         if (state.doc === doc) setStatus(isDirty() ? 'unsaved' : 'saved');
       } catch (err) {
@@ -279,7 +325,7 @@
     const doc = state.doc;
     if (!doc || state.conflict || state.saving) return;
     try {
-      const a = await api('GET', `/api/articles/${enc(doc.slug)}`);
+      const a = await api('GET', docUrl(doc));
       if (state.doc !== doc || Math.abs(a.mtime - doc.mtime) < 1) return;
       if (a.content === doc.saved) { doc.mtime = a.mtime; return; }
       if (isDirty()) { showConflict(a); return; }
@@ -307,10 +353,11 @@
       const text = ed.value;
       if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text);
 
-      const title = md.title(text) || state.doc.slug;
+      const isNote = state.doc.kind === 'notes';
+      const title = isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
       el.title.textContent = title;
-      el.file.textContent = `articles/${state.doc.slug}.md`;
-      document.title = `${title} · Design Bytes`;
+      el.file.textContent = `${KINDS[state.doc.kind].folder}/${state.doc.slug}.md`;
+      document.title = `${title} · DB Writer`;
 
       const s = md.stats(text);
       el.stats.textContent = `${s.words.toLocaleString()} words · ${s.minutes} min read`;
@@ -321,12 +368,14 @@
       el.issuesBtn.textContent = `${state.issues.length} ${state.issues.length === 1 ? 'suggestion' : 'suggestions'}`;
       if (!el.issues.hidden) renderIssues();
 
-      const status = md.status(text);
-      el.stageSelect.value = status;
-      el.stage.dataset.status = status;
-      body.dataset.status = status;
+      const status = isNote ? undefined : md.status(text);
+      if (!isNote) {
+        el.stageSelect.value = status;
+        el.stage.dataset.status = status;
+      }
+      body.dataset.status = status || '';
 
-      const entry = state.articles.find((a) => a.slug === state.doc.slug);
+      const entry = listOf(state.doc.kind).find((a) => a.slug === state.doc.slug);
       if (entry && (entry.title !== title || entry.words !== s.words || entry.status !== status)) {
         entry.title = title;
         entry.words = s.words;
@@ -996,7 +1045,7 @@
   async function loadVersions(selectId) {
     const slug = state.doc.slug;
     try {
-      hist.items = await api('GET', `/api/articles/${enc(slug)}/history`);
+      hist.items = await api('GET', `${docUrl()}/history`);
     } catch (err) {
       hist.items = [];
       toast(`Couldn’t load history: ${err.message}`);
@@ -1070,7 +1119,7 @@
     $('#history-restore').disabled = false;
     $('#history-copy').disabled = false;
     try {
-      const r = await api('GET', `/api/articles/${enc(state.doc.slug)}/history/${enc(id)}`);
+      const r = await api('GET', `${docUrl()}/history/${enc(id)}`);
       if (hist.selected !== id) return;
       hist.content = r.content;
       renderVersion();
@@ -1162,7 +1211,7 @@
     try {
       // Keep the current text first, so restoring can itself be undone.
       await save();
-      await api('POST', `/api/articles/${enc(state.doc.slug)}/history`, { label: safety });
+      await api('POST', `${docUrl()}/history`, { label: safety });
     } catch (err) {
       toast(`Couldn’t save your current text first, so nothing was restored: ${err.message}`);
       return;
@@ -1182,7 +1231,7 @@
     if (!label || !state.doc) return;
     try {
       await save();
-      const r = await api('POST', `/api/articles/${enc(state.doc.slug)}/history`, { label });
+      const r = await api('POST', `${docUrl()}/history`, { label });
       if (historyOpen()) await loadVersions(r.id);
       toast(`Saved version “${label}”`);
     } catch (err) {
@@ -1432,7 +1481,21 @@
     });
   }
 
-  async function newArticle() {
+  async function newDoc() {
+    if (state.view === 'notes') {
+      // Quick notes start straight away: no title needed, the first line becomes one.
+      await save();
+      try {
+        const n = await api('POST', '/api/notes', {});
+        await loadList();
+        load(n, 'notes');
+        if (body.dataset.mode === 'preview') setMode('write');
+        ed.focus();
+      } catch (err) {
+        toast(`Couldn’t create note: ${err.message}`);
+      }
+      return;
+    }
     const title = await ask({
       title: 'New article', label: 'Title', placeholder: 'What are you writing about?', confirm: 'Create',
       hint: 'You can change the title any time — it’s the first heading.',
@@ -1442,7 +1505,7 @@
     try {
       const a = await api('POST', '/api/articles', { title });
       await loadList();
-      load(a);
+      load(a, 'articles');
       ed.focus();
       ed.setSelectionRange(ed.value.length, ed.value.length);
     } catch (err) {
@@ -1452,22 +1515,24 @@
 
   async function renameDoc() {
     const doc = state.doc;
-    const suggested = md.title(ed.value) ? slugifyTitle(md.title(ed.value)) : doc.slug;
+    const folder = KINDS[doc.kind].folder;
+    const heading = doc.kind === 'notes' ? md.displayTitle(ed.value) : md.title(ed.value);
+    const suggested = heading ? slugifyTitle(heading) || doc.slug : doc.slug;
     const to = await ask({
-      title: 'Rename file', label: 'File name', value: doc.slug === suggested ? doc.slug : suggested,
-      hint: `Letters, numbers and dashes. Currently articles/${doc.slug}.md`, confirm: 'Rename',
+      title: 'Rename file', label: 'File name', value: suggested,
+      hint: `Letters, numbers and dashes. Currently ${folder}/${doc.slug}.md`, confirm: 'Rename',
     });
     if (!to || to === doc.slug) return;
     await save();
     try {
-      const a = await api('POST', `/api/articles/${enc(doc.slug)}/rename`, { to });
+      const a = await api('POST', `${docUrl(doc)}/rename`, { to });
       doc.slug = a.slug;
       doc.mtime = a.mtime;
-      prefs.set('last', a.slug);
-      history.replaceState(null, '', `#${a.slug}`);
+      prefs.set('last', { kind: doc.kind, slug: a.slug });
+      history.replaceState(null, '', hashFor(doc.kind, a.slug));
       await loadList();
       refresh(true);
-      toast(`Renamed to articles/${a.slug}.md`);
+      toast(`Renamed to ${folder}/${a.slug}.md`);
     } catch (err) {
       toast(`Couldn’t rename: ${err.message}`);
     }
@@ -1482,17 +1547,18 @@
     const doc = state.doc;
     const ok = await ask({
       title: 'Move to trash?',
-      text: `“${el.title.textContent}” will be moved to articles/.trash. You can restore it from there.`,
+      text: `“${el.title.textContent}” will be moved to ${KINDS[doc.kind].folder}/.trash. You can restore it from there.`,
       confirm: 'Move to trash', danger: true,
     });
     if (!ok) return;
     await save();
     try {
-      await api('DELETE', `/api/articles/${enc(doc.slug)}`);
+      await api('DELETE', docUrl(doc));
       closeDoc();
       await loadList();
-      if (state.articles[0]) await openArticle(state.articles[0].slug);
-      toast('Moved to articles/.trash');
+      const next = listOf(doc.kind)[0];
+      if (next) await openDoc(doc.kind, next.slug);
+      toast(`Moved to ${KINDS[doc.kind].folder}/.trash`);
     } catch (err) {
       toast(`Couldn’t delete: ${err.message}`);
     }
@@ -1501,7 +1567,7 @@
   async function exportDoc() {
     await save();
     const a = document.createElement('a');
-    a.href = `/api/articles/${enc(state.doc.slug)}/export`;
+    a.href = `${docUrl()}/export`;
     a.download = `${state.doc.slug}.html`;
     a.click();
   }
@@ -1657,16 +1723,16 @@
 
   el.search.addEventListener('input', renderList);
   el.list.addEventListener('click', (e) => {
-    const slug = e.target.closest('[data-slug]')?.dataset.slug;
-    if (slug) openArticle(slug);
+    const item = e.target.closest('[data-slug]');
+    if (item) openDoc(item.dataset.kind, item.dataset.slug);
   });
-  $('#new').addEventListener('click', newArticle);
-  $('#empty-new').addEventListener('click', newArticle);
+  $('#new').addEventListener('click', newDoc);
+  $('#empty-new').addEventListener('click', newDoc);
 
   window.addEventListener('focus', checkDisk);
   window.addEventListener('hashchange', () => {
-    const slug = decodeURIComponent(location.hash.slice(1));
-    if (slug && slug !== state.doc?.slug) openArticle(slug);
+    const target = parseHash();
+    if (target && !isOpen(target.kind, target.slug)) openDoc(target.kind, target.slug);
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') save();
@@ -1674,7 +1740,7 @@
   window.addEventListener('beforeunload', (e) => {
     if (!isDirty() || state.conflict) return;
     // Best effort: flush the last keystrokes, and warn in case it doesn't land.
-    fetch(`/api/articles/${enc(state.doc.slug)}`, {
+    fetch(docUrl(), {
       method: 'PUT',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
@@ -1690,10 +1756,16 @@
     if (prefs.get('sidebar', true) === false) body.classList.add('no-sidebar');
     if (prefs.get('notes', false)) { body.classList.add('notes-open'); $('#notes').inert = false; $('#notes-btn').setAttribute('aria-pressed', 'true'); }
 
+    state.view = prefs.get('view', 'articles') === 'notes' ? 'notes' : 'articles';
     await loadList();
-    const wanted = decodeURIComponent(location.hash.slice(1)) || prefs.get('last', '');
-    const target = state.articles.find((a) => a.slug === wanted) || state.articles[0];
-    if (target) await openArticle(target.slug);
+    setView(state.view);
+    let last = prefs.get('last', null);
+    if (typeof last === 'string') last = { kind: 'articles', slug: last }; // older saved form
+    const wanted = parseHash() || last;
+    const found = wanted && listOf(wanted.kind).find((a) => a.slug === wanted.slug);
+    const first = listOf(state.view)[0] || state.articles[0];
+    if (found) await openDoc(wanted.kind, found.slug);
+    else if (first) await openDoc(listOf(state.view)[0] ? state.view : 'articles', first.slug);
     else closeDoc();
   }
 

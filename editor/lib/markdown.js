@@ -551,6 +551,15 @@
     return setext ? plainText(inline(setext[1])).trim() : '';
   }
 
+  // A title to show for any document: its first heading, or else its first line.
+  function displayTitle(src) {
+    const heading = title(src);
+    if (heading) return heading;
+    const line = articleBody(src).split('\n').find((l) => l.trim()) || '';
+    const text = plainText(inline(line.replace(/^\s*(?:[-*+>]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, ''))).replace(/\s+/g, ' ').trim();
+    return text.length > 80 ? `${text.slice(0, 80).replace(/\s+\S*$/, '')}…` : text;
+  }
+
   function stats(src) {
     const text = articleBody(src);
     const prose = text
@@ -886,7 +895,7 @@
   }
 
   return {
-    render, inline, title, stats, excerpt, lint, slugify, plainText, escape: esc,
+    render, inline, title, displayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
     frontMatter, setMeta, status, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
   };
 });

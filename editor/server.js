@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Design Bytes Writer — a local, dependency-free server for the editor.
+// DB Writer — a local server for the editor.
 //   npm start            → http://localhost:4321
 //   PORT=5000 npm start  → pick another port
 // Settings such as ANTHROPIC_API_KEY can go in a .env file at the project root.
@@ -82,26 +82,39 @@ function isTrusted(req) {
 // ---------------------------------------------------------------------------
 // API
 
-async function articlesApi(req, res, slug, action, versionId) {
+// /api/articles/… and /api/notes/… — the same API over two folders.
+async function documentsApi(req, res, coll, slug, action, versionId) {
   const method = req.method;
+  const isNote = coll.kind === 'notes';
 
   if (!slug) {
-    if (method === 'GET') return json(res, 200, await store.listArticles());
+    if (method === 'GET') return json(res, 200, await coll.list());
     if (method === 'POST') {
       const { title } = await readJson(req);
-      const clean = String(title || '').trim() || 'Untitled';
-      const slugged = await store.uniqueSlug(store.slugify(clean));
-      await fsp.mkdir(store.ARTICLES, { recursive: true });
-      await store.writeAtomic(store.articlePath(slugged), md.setMeta(`# ${clean}\n\n`, 'status', md.DEFAULT_STATUS));
-      return json(res, 201, await store.readArticle(slugged));
+      const clean = String(title || '').trim();
+      let slugged;
+      let content;
+      if (isNote) {
+        // Quick notes are named by when they were made: 2026-10-04-1532.md
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        slugged = await coll.uniqueSlug(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`);
+        content = clean ? `# ${clean}\n\n` : '';
+      } else {
+        slugged = await coll.uniqueSlug(store.slugify(clean || 'Untitled'));
+        content = md.setMeta(`# ${clean || 'Untitled'}\n\n`, 'status', md.DEFAULT_STATUS);
+      }
+      await fsp.mkdir(coll.dir, { recursive: true });
+      await store.writeAtomic(coll.file(slugged), content);
+      return json(res, 201, await coll.read(slugged));
     }
     throw httpError(405, 'Method not allowed');
   }
 
-  if (!store.isSlug(slug)) throw httpError(400, 'Invalid article name');
-  const file = store.articlePath(slug);
+  if (!store.isSlug(slug)) throw httpError(400, 'Invalid name');
+  const file = coll.file(slug);
 
-  if (!action && method === 'GET') return json(res, 200, await store.readArticle(slug));
+  if (!action && method === 'GET') return json(res, 200, await coll.read(slug));
 
   if (!action && method === 'PUT') {
     const { content, mtime } = await readJson(req);
@@ -109,54 +122,54 @@ async function articlesApi(req, res, slug, action, versionId) {
     const stat = await fsp.stat(file).catch(() => null);
     // Someone (another editor, git, VS Code) changed the file since we loaded it.
     if (stat && mtime != null && Math.abs(stat.mtimeMs - mtime) > 0.5) {
-      return json(res, 409, { error: 'Article changed on disk', ...(await store.readArticle(slug)) });
+      return json(res, 409, { error: 'Changed on disk', ...(await coll.read(slug)) });
     }
     // Keep the text that's about to be replaced (at most every few minutes).
-    if (stat) await history.beforeWrite(slug, file, stat).catch((err) => console.error('history:', err));
+    if (stat) await history.beforeWrite(coll, slug, file, stat).catch((err) => console.error('history:', err));
     await store.writeAtomic(file, content);
     return json(res, 200, { slug, mtime: (await fsp.stat(file)).mtimeMs });
   }
 
   if (!action && method === 'DELETE') {
-    await fsp.mkdir(store.TRASH, { recursive: true });
+    await fsp.mkdir(coll.trash, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    await fsp.rename(file, path.join(store.TRASH, `${slug}-${stamp}.md`));
-    await history.trash(slug, stamp).catch((err) => console.error('history:', err));
-    return json(res, 200, { ok: true, trashed: `articles/.trash/${slug}-${stamp}.md` });
+    await fsp.rename(file, path.join(coll.trash, `${slug}-${stamp}.md`));
+    await history.trash(coll, slug, stamp).catch((err) => console.error('history:', err));
+    return json(res, 200, { ok: true, trashed: `${coll.folder}/.trash/${slug}-${stamp}.md` });
   }
 
   if (action === 'rename' && method === 'POST') {
     const { to } = await readJson(req);
     const next = store.isSlug(String(to || '')) ? String(to) : store.slugify(to || '');
     if (next !== slug) {
-      if (await store.exists(store.articlePath(next))) throw httpError(409, `articles/${next}.md already exists`);
+      if (await store.exists(coll.file(next))) throw httpError(409, `${coll.folder}/${next}.md already exists`);
       await fsp.access(file);
-      await fsp.rename(file, store.articlePath(next));
-      await history.rename(slug, next).catch((err) => console.error('history:', err));
+      await fsp.rename(file, coll.file(next));
+      await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
     }
-    return json(res, 200, await store.readArticle(next));
+    return json(res, 200, await coll.read(next));
   }
 
   if (action === 'history') {
     // GET  …/history        → list of versions, newest first
     // GET  …/history/<id>   → one version's text
     // POST …/history        → save the current file as a (named) version
-    if (!versionId && method === 'GET') return json(res, 200, await history.list(slug));
+    if (!versionId && method === 'GET') return json(res, 200, await history.list(coll, slug));
     if (versionId && method === 'GET') {
       if (!history.isId(versionId)) throw httpError(400, 'Invalid version');
-      return json(res, 200, { id: versionId, content: await history.read(slug, versionId) });
+      return json(res, 200, { id: versionId, content: await history.read(coll, slug, versionId) });
     }
     if (!versionId && method === 'POST') {
       const { label } = await readJson(req);
-      const { content, mtime } = await store.readArticle(slug);
-      const id = await history.snapshot(slug, content, mtime, String(label || '').trim().slice(0, 120));
+      const { content, mtime } = await coll.read(slug);
+      const id = await history.snapshot(coll, slug, content, mtime, String(label || '').trim().slice(0, 120));
       return json(res, 201, { id });
     }
     throw httpError(405, 'Method not allowed');
   }
 
   if (action === 'export' && method === 'GET') {
-    const { content, mtime } = await store.readArticle(slug);
+    const { content, mtime } = await coll.read(slug);
     const html = await inlineImages(renderArticle(content, { mtime }));
     return send(res, 200, html, {
       'Content-Type': TYPES['.html'],
@@ -229,7 +242,8 @@ const server = http.createServer(async (req, res) => {
     const parts = pathname.split('/').filter(Boolean);
 
     if (parts[0] === 'api') {
-      if (parts[1] === 'articles' && parts.length <= 5) return await articlesApi(req, res, parts[2], parts[3], parts[4]);
+      const coll = store.collection(parts[1]);
+      if (coll && parts.length <= 5) return await documentsApi(req, res, coll, parts[2], parts[3], parts[4]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
       if (parts[1] === 'suggest' && parts.length === 2 && req.method === 'POST') {
         return json(res, 200, await suggest(await readJson(req)));
@@ -255,9 +269,10 @@ server.on('error', (err) => {
 
 server.listen(PORT, HOST, () => {
   const address = `http://localhost:${PORT}`;
-  console.log(`\n  design bytes writer  →  ${address}\n`);
-  console.log(`  articles: ${path.relative(process.cwd(), store.ARTICLES) || '.'}/`);
-  console.log(`  images:   ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
+  console.log(`\n  DB Writer  →  ${address}\n`);
+  console.log(`  articles:    ${path.relative(process.cwd(), store.ARTICLES) || '.'}/`);
+  console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
+  console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
   if (process.argv.includes('--open')) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
     execFile(opener, [address], () => {});

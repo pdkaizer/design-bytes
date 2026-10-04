@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Design Bytes Writer</title>
+<title>DB Writer</title>
 <link rel="icon" href="/images/db-icon.png">
 <link rel="stylesheet" href="/article.css">
 <link rel="stylesheet" href="/editor.css">
@@ -12,8 +12,13 @@
 <div class="app">
   <aside class="sidebar" aria-label="Articles">
     <header class="brand">
-      <img src="/images/db-logo@2x.png" alt="design bytes" width="146" height="28">
+      <img src="/images/db-icon@2x.png" alt="DB" width="32" height="32">
+      <h1>Writer</h1>
     </header>
+    <div class="seg view-tabs" id="view-tabs" role="group" aria-label="Show">
+      <button data-view="articles" aria-pressed="true">Articles <span class="count"></span></button>
+      <button data-view="notes" aria-pressed="false">Quick notes <span class="count"></span></button>
+    </div>
     <div class="sidebar-actions">
       <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
       <button id="new" class="btn primary" title="New article">New</button>
@@ -128,8 +133,8 @@
       <div class="empty-state" id="empty">
         <img src="/images/db-icon@2x.png" alt="" width="64" height="64">
         <h2>Nothing open</h2>
-        <p>Pick an article from the sidebar, or start a new one.</p>
-        <button class="btn primary" id="empty-new">New article</button>
+        <p>Pick something from the sidebar, or start something new.</p>
+        <button class="btn primary" id="empty-new">New</button>
       </div>
     </div>
 

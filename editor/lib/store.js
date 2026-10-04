@@ -1,7 +1,8 @@
 'use strict';
 
-// File-system access for articles and images. Articles live in /articles as
-// <slug>.md; images live in /images and are referenced as ../images/<name>.
+// File-system access. Documents live in collections — articles in /articles and
+// quick notes in /quick-notes — as <slug>.md, each with its own .trash and
+// .history. Images live in /images and are referenced as ../images/<name>.
 
 const fs = require('fs');
 const fsp = fs.promises;
@@ -10,6 +11,7 @@ const md = require('./markdown');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const ARTICLES = path.join(ROOT, 'articles');
+const NOTES = path.join(ROOT, 'quick-notes');
 const IMAGES = path.join(ROOT, 'images');
 const TRASH = path.join(ARTICLES, '.trash');
 
@@ -32,11 +34,6 @@ function slugify(text) {
     .replace(/-+$/, '') || 'untitled';
 }
 
-async function uniqueSlug(base) {
-  let slug = base;
-  for (let n = 2; await exists(articlePath(slug)); n++) slug = `${base}-${n}`;
-  return slug;
-}
 
 // Write via a temp file + rename so a crash never leaves a half-written article.
 async function writeAtomic(file, data) {
@@ -45,23 +42,49 @@ async function writeAtomic(file, data) {
   await fsp.rename(tmp, file);
 }
 
-async function readArticle(slug) {
-  const file = articlePath(slug);
-  const [content, stat] = await Promise.all([fsp.readFile(file, 'utf8'), fsp.stat(file)]);
-  return { slug, content, mtime: stat.mtimeMs };
+// A folder of Markdown documents.
+function collection(kind) {
+  const dir = { articles: ARTICLES, notes: NOTES }[kind];
+  if (!dir) return null;
+  const file = (slug) => path.join(dir, `${slug}.md`);
+  const isNote = kind === 'notes';
+
+  async function read(slug) {
+    const [content, stat] = await Promise.all([fsp.readFile(file(slug), 'utf8'), fsp.stat(file(slug))]);
+    return { slug, content, mtime: stat.mtimeMs };
+  }
+
+  async function list() {
+    await fsp.mkdir(dir, { recursive: true });
+    const names = (await fsp.readdir(dir)).filter((name) => name.endsWith('.md') && isSlug(name.slice(0, -3)));
+    const docs = await Promise.all(names.map(async (name) => {
+      const { slug, content, mtime } = await read(name.slice(0, -3));
+      const { words, minutes } = md.stats(content);
+      const title = (isNote ? md.displayTitle(content) : md.title(content)) || (isNote ? 'Untitled note' : slug);
+      return isNote
+        ? { slug, title, excerpt: md.excerpt(content, 140), words, mtime }
+        : { slug, title, status: md.status(content), excerpt: md.excerpt(content), words, minutes, mtime };
+    }));
+    return docs.sort((a, b) => b.mtime - a.mtime);
+  }
+
+  async function uniqueSlug(base) {
+    let slug = base;
+    for (let n = 2; await exists(file(slug)); n++) slug = `${base}-${n}`;
+    return slug;
+  }
+
+  return {
+    kind, dir, file, read, list, uniqueSlug,
+    folder: path.basename(dir),
+    trash: path.join(dir, '.trash'),
+    history: path.join(dir, '.history'),
+  };
 }
 
-async function listArticles() {
-  await fsp.mkdir(ARTICLES, { recursive: true });
-  const names = (await fsp.readdir(ARTICLES))
-    .filter((name) => name.endsWith('.md') && isSlug(name.slice(0, -3)));
-  const articles = await Promise.all(names.map(async (name) => {
-    const { slug, content, mtime } = await readArticle(name.slice(0, -3));
-    const { words, minutes } = md.stats(content);
-    return { slug, title: md.title(content) || slug, status: md.status(content), excerpt: md.excerpt(content), words, minutes, mtime };
-  }));
-  return articles.sort((a, b) => b.mtime - a.mtime);
-}
+const articles = collection('articles');
+const readArticle = articles.read;
+const listArticles = articles.list;
 
 async function listImages() {
   await fsp.mkdir(IMAGES, { recursive: true });
@@ -82,7 +105,7 @@ async function uniqueImageName(name) {
 }
 
 module.exports = {
-  ROOT, ARTICLES, IMAGES, TRASH, IMAGE_EXT,
-  isSlug, articlePath, exists, slugify, uniqueSlug, writeAtomic,
+  ROOT, ARTICLES, NOTES, IMAGES, TRASH, IMAGE_EXT,
+  isSlug, articlePath, exists, slugify, writeAtomic, collection,
   readArticle, listArticles, listImages, uniqueImageName,
 };
