@@ -1288,9 +1288,9 @@
     const btn = $('#read-btn');
     btn.setAttribute('aria-pressed', String(read.on));
     btn.querySelector('span').textContent = read.on && r?.sentences ? `Readability · grade ${r.grade}` : 'Readability';
-    if ($('#read-panel').hidden || !r) return;
     $('#read-on').checked = read.on;
     $('#read-panel').classList.toggle('off', !read.on);
+    if ($('#read-panel').hidden || !r) return;
     const words = GRADE_WORDS.find(([max]) => r.grade <= max)[1];
     $('#read-grade').innerHTML = r.sentences
       ? `<b>Grade ${r.grade}</b> · ${md.escape(words)}<br>${r.sentences} sentences, ${(r.words / r.sentences).toFixed(0)} words on average`
@@ -1333,9 +1333,9 @@
     panel.hidden = !panel.hidden;
     if (!panel.hidden) {
       panel.style.left = `${Math.max(10, $('#read-btn').offsetLeft - 10)}px`;
-      // Opening the panel the first time also turns highlighting on.
-      if (!read.on && !prefs.get('readability-seen', false)) { prefs.set('readability-seen', true); setReadability(true); }
-      updateReadPanel();
+      // Opening the panel turns highlighting on (the switch inside turns it off again).
+      if (!read.on) setReadability(true);
+      else renderReadability();
     }
   });
   $('#read-on').addEventListener('change', (e) => setReadability(e.target.checked));
