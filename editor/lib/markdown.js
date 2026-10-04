@@ -113,11 +113,91 @@
     return `---\n${inner.filter((l) => l.trim()).join('\n')}\n---\n${fm.body}`;
   }
 
+  // ---------------------------------------------------------------------------
+  // Notes: a private block at the end of the file, kept inside an HTML comment
+  // so it stays hidden everywhere the Markdown is shown (GitHub, Ghost, …).
+  //
+  //   <!-- notes
+  //   A sentence I cut…
+  //   -->
+
+  const NOTES = /\n*^<!-- notes[ \t]*\r?\n([\s\S]*?)\r?\n?^-->[ \t]*(?:\r?\n|$)/m;
+
+  // Splits text into { article, notes }.
+  function splitNotes(src) {
+    const text = String(src == null ? '' : src);
+    const m = text.match(NOTES);
+    if (!m) return { article: text, notes: '' };
+    const article = text.slice(0, m.index) + (m.index + m[0].length < text.length ? '\n\n' + text.slice(m.index + m[0].length) : '\n');
+    return { article: m.index === 0 ? article.replace(/^\n+/, '') : article, notes: m[1] };
+  }
+
+  // Joins article text and notes back into one file. With no notes, the article is returned unchanged.
+  function joinNotes(article, notes) {
+    const n = String(notes || '').replace(/\s+$/, '');
+    if (!n.trim()) return article;
+    // "-->" would end the comment early, so it's softened to "-- >".
+    return `${String(article).replace(/\s+$/, '')}\n\n<!-- notes\n${n.replace(/-->/g, '-- >')}\n-->\n`;
+  }
+
+  const articleBody = (src) => splitNotes(frontMatter(src).body).article;
+
+  // Inside the notes, text moved out of the article is kept with the words that
+  // surrounded it, so it can be put back in the same place later:
+  //
+  //   [cut] {"before":"…text before…","after":"…text after…","lead":" ","trail":""}
+  //   The moved text
+  //   [/cut]
+
+  const CUT = /^\[cut\] (\{.*\})[ \t]*\r?\n([\s\S]*?)\r?\n\[\/cut\][ \t]*$/gm;
+
+  // Splits notes into free-form text and the list of cuts.
+  function parseNotes(notes) {
+    const cuts = [];
+    const text = String(notes || '').replace(CUT, (_, meta, body) => {
+      let m = {};
+      try { m = JSON.parse(meta); } catch { /* keep the text, lose the location */ }
+      const str = (v) => (typeof v === 'string' ? v : '');
+      cuts.push({ text: body, before: str(m.before), after: str(m.after), lead: str(m.lead), trail: str(m.trail) });
+      return '';
+    });
+    return { text: text.replace(/\n{3,}/g, '\n\n').trim(), cuts };
+  }
+
+  function formatNotes({ text = '', cuts = [] }) {
+    return [
+      String(text).trim(),
+      ...cuts.map((c) => `[cut] ${JSON.stringify({ before: c.before, after: c.after, lead: c.lead, trail: c.trail })}\n${c.text}\n[/cut]`),
+    ].filter(Boolean).join('\n\n');
+  }
+
+  // Where a cut belongs in the article now: the offset between the words that
+  // surrounded it, or -1 if that spot can't be found unambiguously.
+  function findCutSpot(article, { before = '', after = '' }) {
+    const unique = (needle) => {
+      const i = article.indexOf(needle);
+      return i > -1 && article.indexOf(needle, i + 1) === -1 ? i : -1;
+    };
+    if (before || after) {
+      const both = unique(before + after);
+      if (both > -1) return both + before.length;
+    }
+    for (const n of [60, 30, 15]) {
+      const b = before.slice(-n);
+      if (b.trim().length >= 6) { const i = unique(b); if (i > -1) return i + b.length; }
+      const a = after.slice(0, n);
+      if (a.trim().length >= 6) { const i = unique(a); if (i > -1) return i; }
+    }
+    if (!before.trim()) return 0;
+    if (!after.trim()) return article.replace(/\s+$/, '').length;
+    return -1;
+  }
+
   // Markdown ready to paste into a publishing system such as Ghost: no front
   // matter, links that were pasted twice repaired, and (by default) without the
   // title heading, since the publishing system has its own title field.
   function forPublishing(src, { includeTitle = false } = {}) {
-    let body = frontMatter(src).body.replace(/\r\n?/g, '\n').replace(/^\s*\n/, '');
+    let body = articleBody(src).replace(/\r\n?/g, '\n').replace(/^\s*\n/, '');
     if (!includeTitle) {
       body = body.replace(/^ {0,3}#{1,6}[ \t]+.*\n?/, '').replace(/^\S.*\n {0,3}(?:=+|-+)[ \t]*(?:\n|$)/, '');
     }
@@ -134,7 +214,7 @@
   // Block level
 
   function render(src) {
-    const text = frontMatter(src).body
+    const text = articleBody(src)
       .replace(/\r\n?/g, '\n')
       .replace(/\t/g, '    ')
       .replace(/\u0000/g, '�');
@@ -464,7 +544,7 @@
   // Helpers for the writing tools
 
   function title(src) {
-    const text = frontMatter(src).body;
+    const text = articleBody(src);
     const atx = text.match(/^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m);
     if (atx) return plainText(inline(atx[1])).trim();
     const setext = text.match(/^(\S.*)\n {0,3}(?:=+|-+)[ \t]*$/m);
@@ -472,7 +552,7 @@
   }
 
   function stats(src) {
-    const text = frontMatter(src).body;
+    const text = articleBody(src);
     const prose = text
       .replace(/^ {0,3}(`{3,}|~{3,})[\s\S]*?^ {0,3}\1/gm, ' ')
       .replace(/!\[[^\]]*\]\((?:[^()]|\([^)]*\))*\)/g, ' ')
@@ -497,7 +577,7 @@
   function lint(src) {
     const issues = [];
     const fm = frontMatter(src);
-    const lines = fm.body.replace(/\r\n?/g, '\n').split('\n');
+    const lines = splitNotes(fm.body).article.replace(/\r\n?/g, '\n').split('\n');
     let fence = null;
 
     lines.forEach((line, n) => {
@@ -538,6 +618,6 @@
 
   return {
     render, inline, title, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, status, forPublishing, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, status, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, STATUSES, DEFAULT_STATUS,
   };
 });

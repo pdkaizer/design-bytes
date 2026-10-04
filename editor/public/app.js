@@ -6,6 +6,7 @@
   const $ = (sel) => document.querySelector(sel);
   const body = document.body;
   const ed = $('#editor');
+  const notesEd = $('#notes-editor');
 
   const el = {
     list: $('#list'),
@@ -37,6 +38,7 @@
     saving: null,
     conflict: null,
     issues: [],
+    cuts: [], // text moved to notes, with where it came from
   };
 
   const prefs = {
@@ -164,10 +166,21 @@
     }
   }
 
+  // The editor holds the article; the notes panel holds the file's notes block.
+  const fileText = () => md.joinNotes(ed.value, md.formatNotes({ text: notesEd.value, cuts: state.cuts }));
+  function setFileText(content) {
+    const { article, notes } = md.splitNotes(content);
+    const parsed = md.parseNotes(notes);
+    ed.value = article;
+    notesEd.value = parsed.text;
+    state.cuts = parsed.cuts;
+    renderCuts();
+  }
+
   function load(article) {
     state.doc = { slug: article.slug, saved: article.content, mtime: article.mtime };
     hideConflict();
-    ed.value = article.content;
+    setFileText(article.content);
     ed.setSelectionRange(0, 0);
     ed.scrollTop = 0;
     el.previewPane.scrollTop = 0;
@@ -182,7 +195,7 @@
 
   function closeDoc() {
     state.doc = null;
-    ed.value = '';
+    setFileText('');
     body.classList.add('empty');
     el.title.textContent = 'design bytes';
     el.file.textContent = '';
@@ -191,7 +204,7 @@
     renderList();
   }
 
-  const isDirty = () => !!state.doc && ed.value !== state.doc.saved;
+  const isDirty = () => !!state.doc && fileText() !== state.doc.saved;
 
   const STATUS = { saved: 'Saved', unsaved: 'Edited', saving: 'Saving…', error: 'Not saved', conflict: 'Conflict' };
   function setStatus(s) {
@@ -212,7 +225,7 @@
     const doc = state.doc;
     if (!doc || (!force && (state.conflict || !isDirty()))) return;
 
-    const content = ed.value;
+    const content = fileText();
     setStatus('saving');
     state.saving = (async () => {
       try {
@@ -269,7 +282,7 @@
       if (a.content === doc.saved) { doc.mtime = a.mtime; return; }
       if (isDirty()) { showConflict(a); return; }
       const { selectionStart, selectionEnd, scrollTop } = ed;
-      ed.value = a.content;
+      setFileText(a.content);
       doc.saved = a.content;
       doc.mtime = a.mtime;
       ed.setSelectionRange(selectionStart, selectionEnd);
@@ -511,6 +524,7 @@
     task: () => toggleLines(/^(\s*)[-*+][ \t]+\[[ xX]\][ \t]+/, (t) => `- [ ] ${t}`),
     hr: () => insertBlock('---'),
     suggest: () => openSuggest(),
+    tonotes: () => moveToNotes(),
     font: () => setFont(FONTS[(FONTS.indexOf(prefs.get('font', 'mono')) + 1) % FONTS.length]),
   };
 
@@ -622,7 +636,7 @@
   // Suggested alternatives — highlight text, then click the chip or press ⌘J
 
   const sug = {
-    chip: $('#suggest-chip'),
+    chip: $('#selection-chip'),
     panel: $('#suggest'),
     list: $('#suggest-list'),
     quote: $('#suggest-quote'),
@@ -663,7 +677,8 @@
     cancelAnimationFrame(chipFrame);
     chipFrame = requestAnimationFrame(() => {
       const range = document.activeElement === ed && state.doc && sug.panel.hidden ? selectedRange() : null;
-      if (!range || range.text.length > MAX_SUGGEST) { sug.chip.hidden = true; return; }
+      if (!range) { sug.chip.hidden = true; return; }
+      $('#chip-suggest').hidden = range.text.length > MAX_SUGGEST;
       if (!placeBelow(sug.chip, ed.selectionEnd)) sug.chip.hidden = true;
     });
   }
@@ -757,7 +772,8 @@
   }
 
   sug.chip.addEventListener('mousedown', (e) => e.preventDefault()); // keep the selection
-  sug.chip.addEventListener('click', openSuggest);
+  $('#chip-suggest').addEventListener('click', openSuggest);
+  $('#chip-notes').addEventListener('click', () => moveToNotes());
   $('#suggest-retry').addEventListener('click', () => {
     if (!sug.range) return;
     ed.setSelectionRange(sug.range.start, sug.range.end);
@@ -782,6 +798,160 @@
       closeSuggest(); // typing carries on as normal
     }
   }, true);
+
+  // ---------------------------------------------------------------------------
+  // Notes — a private area saved at the end of the article file, never published
+
+  function updateNotesCount() {
+    const all = [notesEd.value, ...state.cuts.map((c) => c.text)].join('\n\n');
+    const words = md.stats(all).words;
+    const text = all.trim() ? `${words.toLocaleString()} word${words === 1 ? '' : 's'}` : '';
+    $('#notes-count').textContent = text ? `· ${text}` : '';
+    $('#notes-btn span').textContent = text ? `Notes · ${text}` : 'Notes';
+  }
+
+  const notesOpen = () => body.classList.contains('notes-open');
+  function toggleNotes(open = !notesOpen()) {
+    body.classList.toggle('notes-open', open);
+    $('#notes').inert = !open;
+    if (!open) hideCutSpot();
+    $('#notes-btn').setAttribute('aria-pressed', String(open));
+    $('#notes-btn').title = `${open ? 'Hide' : 'Show'} notes (⌥⌘N)`;
+    prefs.set('notes', open);
+    if (open && state.doc) notesEd.focus();
+    else if (state.doc) ed.focus();
+  }
+
+  function moveToNotes() {
+    if (!state.doc) return;
+    const range = selectedRange();
+    if (!range) { toast('Highlight the text you want to move to notes'); return; }
+
+    const v = ed.value;
+    let { start, end } = range;
+    const atLineStart = start === 0 || v[start - 1] === '\n';
+    const atLineEnd = end === v.length || v[end] === '\n';
+    if (atLineStart && atLineEnd) {
+      // A whole paragraph or line: take the blank line after it too.
+      end += v.slice(end, end + 2) === '\n\n' ? 2 : v[end] === '\n' ? 1 : 0;
+    } else if (v[start - 1] === ' ' && /^[\s.,;:!?)\]”’]?$/.test(v[end] || '')) {
+      start -= 1; // mid-sentence: don't leave a double space behind
+    } else if (atLineStart && v[end] === ' ') {
+      end += 1;
+    }
+    // Remember the words around it, so it can be put back in the same place.
+    state.cuts.push({
+      text: range.text,
+      before: v.slice(Math.max(0, start - 80), start),
+      after: v.slice(end, end + 80),
+      lead: v.slice(start, range.start),
+      trail: v.slice(range.end, end),
+    });
+    renderCuts(true);
+    replaceRange(start, end, '', start); // fires input → autosave
+    ed.focus();
+    toast(notesOpen() ? 'Moved to notes' : 'Moved to notes — ⌥⌘N to show them');
+  }
+
+  // Context shown on a card: the last few words before where the text was.
+  function cutOrigin(cut) {
+    const words = cut.before
+      .replace(/!?\[([^\]]*)\]\([^)]*\)?/g, '$1') // links → their text
+      .replace(/[*_`#>~]|^---$|^status:.*$/gm, '')
+      .replace(/\s+/g, ' ').trim().split(' ');
+    if (!words[0]) return 'from the start of the article';
+    return `after “…${words.slice(-6).join(' ')}”`;
+  }
+
+  function renderCuts(flashNewest = false) {
+    const list = $('#cuts');
+    list.hidden = !state.cuts.length;
+    list.replaceChildren(...state.cuts.map((cut, i) => {
+      const card = document.createElement('div');
+      card.className = 'cut';
+      const text = document.createElement('p');
+      text.className = 'cut-text';
+      text.textContent = cut.text;
+      text.title = cut.text;
+      const meta = document.createElement('div');
+      meta.className = 'cut-meta';
+      const origin = document.createElement('span');
+      origin.textContent = cutOrigin(cut);
+      origin.title = origin.textContent;
+      const putBack = document.createElement('button');
+      putBack.className = 'btn';
+      putBack.textContent = 'Put back';
+      putBack.title = 'Reinsert this where it was removed';
+      putBack.addEventListener('click', () => restoreCut(i));
+      const del = document.createElement('button');
+      del.className = 'cut-delete';
+      del.textContent = 'Delete';
+      del.addEventListener('click', () => {
+        if (del.dataset.armed) { state.cuts.splice(i, 1); renderCuts(); scheduleSave(); return; }
+        del.dataset.armed = '1';
+        del.textContent = 'Delete?';
+        setTimeout(() => { delete del.dataset.armed; del.textContent = 'Delete'; }, 2500);
+      });
+      meta.append(origin, putBack, del);
+      card.append(text, meta);
+      card.addEventListener('mouseenter', () => showCutSpot(cut, origin));
+      card.addEventListener('focusin', () => showCutSpot(cut, origin));
+      card.addEventListener('mouseleave', hideCutSpot);
+      card.addEventListener('focusout', hideCutSpot);
+      return card;
+    }));
+    if (flashNewest && list.lastElementChild) {
+      list.lastElementChild.classList.add('flash');
+      list.lastElementChild.scrollIntoView({ block: 'nearest' });
+    }
+    updateNotesCount();
+  }
+
+  // Show where a card's text would go back, scrolling the editor there if needed.
+  const marker = $('#cut-marker');
+  function showCutSpot(cut, origin) {
+    const at = md.findCutSpot(ed.value, cut);
+    if (at < 0) {
+      origin.textContent = 'Original spot not found — Put back inserts at the cursor';
+      hideCutSpot();
+      return;
+    }
+    origin.textContent = cutOrigin(cut);
+    if (body.dataset.mode === 'preview' && !body.classList.contains('focus')) { hideCutSpot(); return; }
+    const top = caretTop(at);
+    if (top < ed.scrollTop + 48 || top > ed.scrollTop + ed.clientHeight - 64) {
+      ed.scrollTop = Math.max(0, top - ed.clientHeight / 3);
+    }
+    const p = caretPoint(at);
+    marker.style.left = `${p.x - 1}px`;
+    marker.style.top = `${p.y}px`;
+    marker.style.height = `${p.height}px`;
+    marker.hidden = false;
+  }
+  function hideCutSpot() { marker.hidden = true; }
+
+  function restoreCut(i) {
+    hideCutSpot();
+    const cut = state.cuts[i];
+    if (!cut) return;
+    let at = md.findCutSpot(ed.value, cut);
+    const found = at > -1;
+    if (!found) at = ed.selectionStart; // the surrounding text changed too much
+    state.cuts.splice(i, 1);
+    renderCuts();
+    const piece = cut.lead + cut.text + cut.trail;
+    replaceRange(at, at, piece, at + cut.lead.length, at + cut.lead.length + cut.text.length);
+    ed.scrollTop = Math.max(0, caretTop(at) - ed.clientHeight / 3);
+    toast(found ? 'Put back where it was' : 'Couldn’t find its original spot, so it went in at the cursor');
+  }
+
+  notesEd.addEventListener('input', () => {
+    if (!state.doc) return;
+    updateNotesCount();
+    scheduleSave();
+  });
+  $('#notes-btn').addEventListener('click', () => toggleNotes());
+  $('#notes-close').addEventListener('click', () => toggleNotes(false));
 
   // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
@@ -1076,6 +1246,8 @@
       if (body.classList.contains('focus')) { toggleFocus(false); return; }
     }
     if (!mod) return;
+    if (e.altKey && e.code === 'KeyN') { e.preventDefault(); if (state.doc) toggleNotes(); return; }
+    if (e.altKey && e.code === 'KeyM') { e.preventDefault(); moveToNotes(); return; }
     if (e.key === 's') { e.preventDefault(); save(); }
     else if (e.key === '/') { e.preventDefault(); setMode(MODES[(MODES.indexOf(body.dataset.mode) + 1) % MODES.length]); }
     else if (e.key === '.' && !e.shiftKey) { e.preventDefault(); toggleFocus(); }
@@ -1108,7 +1280,7 @@
       method: 'PUT',
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: ed.value, mtime: state.doc.mtime }),
+      body: JSON.stringify({ content: fileText(), mtime: state.doc.mtime }),
     });
     e.preventDefault();
   });
@@ -1118,6 +1290,7 @@
     setFont(prefs.get('font', 'mono'));
     setMode(prefs.get('mode', 'split'));
     if (prefs.get('sidebar', true) === false) body.classList.add('no-sidebar');
+    if (prefs.get('notes', false)) { body.classList.add('notes-open'); $('#notes').inert = false; $('#notes-btn').setAttribute('aria-pressed', 'true'); }
 
     await loadList();
     const wanted = decodeURIComponent(location.hash.slice(1)) || prefs.get('last', '');

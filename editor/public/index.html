@@ -103,6 +103,7 @@
       <button data-cmd="hr" title="Divider">—</button>
       <span class="sep"></span>
       <button data-cmd="suggest" title="Suggest alternatives for the highlighted text (⌘J)"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.5c.3 2.9 1.1 4.6 2.2 5.6 1 1 2.6 1.6 5.3 1.9-2.7.3-4.3.9-5.3 1.9-1.1 1-1.9 2.7-2.2 5.6-.3-2.9-1.1-4.6-2.2-5.6-1-1-2.6-1.6-5.3-1.9 2.7-.3 4.3-.9 5.3-1.9 1.1-1 1.9-2.7 2.2-5.6Z"/><path d="M16 1.5c.1.9.4 1.4.7 1.8.4.3.9.5 1.8.7-.9.1-1.4.4-1.8.7-.3.4-.6.9-.7 1.8-.1-.9-.4-1.4-.7-1.8-.4-.3-.9-.6-1.8-.7.9-.2 1.4-.4 1.8-.7.3-.4.6-.9.7-1.8Z"/></svg></button>
+      <button data-cmd="tonotes" title="Move the highlighted text to notes (⌥⌘M)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v8.5M6.5 8 10 11.5 13.5 8"/><path d="M3 12.5v2A2.5 2.5 0 0 0 5.5 17h9a2.5 2.5 0 0 0 2.5-2.5v-2"/></svg></button>
       <span class="grow"></span>
       <button data-cmd="font" id="font-btn" title="Editor font">Aa</button>
     </div>
@@ -113,6 +114,7 @@
       <button class="btn primary" data-conflict="mine">Keep mine</button>
     </div>
 
+    <div class="work">
     <div class="panes">
       <div class="pane pane-edit">
         <textarea id="editor" spellcheck="true" autocapitalize="sentences" aria-label="Article markdown"
@@ -129,9 +131,29 @@
       </div>
     </div>
 
+    <aside class="notes-panel" id="notes" aria-label="Notes" inert>
+      <header class="notes-head">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4.5 3h8l3 3v10.5a.5.5 0 0 1-.5.5H4.5a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5Z"/><path d="M7 9h6M7 12h6M7 6h3" stroke-linecap="round"/></svg>
+        <strong>Notes</strong>
+        <span id="notes-count"></span>
+        <span class="grow"></span>
+        <button class="icon-btn" id="notes-close" title="Hide notes (⌥⌘N)" aria-label="Hide notes">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="m5.5 5.5 9 9m0-9-9 9"/></svg>
+        </button>
+      </header>
+      <p class="notes-hint">Saved with the article · never shown or published. Hover a card to see where it goes back.</p>
+      <div class="notes-body">
+        <div class="cuts" id="cuts" hidden aria-label="Text moved out of the article"></div>
+        <textarea id="notes-editor" spellcheck="true" aria-label="Notes"
+          placeholder="Ideas, sources, reminders…"></textarea>
+      </div>
+    </aside>
+    </div>
+
     <footer class="statusbar">
       <span id="stats"></span>
       <button id="issues-btn" class="issues-btn" hidden></button>
+      <button id="notes-btn" class="notes-btn" title="Show notes (⌥⌘N)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4.5 3h8l3 3v10.5a.5.5 0 0 1-.5.5H4.5a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5Z"/><path d="M7 9h6M7 12h6M7 6h3" stroke-linecap="round"/></svg><span>Notes</span></button>
       <span class="grow"></span>
       <span id="cursor"></span>
       <div class="issues" id="issues" hidden></div>
@@ -140,9 +162,13 @@
 </div>
 
 <button class="focus-exit" id="focus-exit">Exit focus · Esc</button>
+<div class="cut-marker" id="cut-marker" hidden><span>Goes back here</span></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<button class="suggest-chip" id="suggest-chip" hidden title="Suggest alternatives (⌘J)"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.5c.3 2.9 1.1 4.6 2.2 5.6 1 1 2.6 1.6 5.3 1.9-2.7.3-4.3.9-5.3 1.9-1.1 1-1.9 2.7-2.2 5.6-.3-2.9-1.1-4.6-2.2-5.6-1-1-2.6-1.6-5.3-1.9 2.7-.3 4.3-.9 5.3-1.9 1.1-1 1.9-2.7 2.2-5.6Z"/><path d="M16 1.5c.1.9.4 1.4.7 1.8.4.3.9.5 1.8.7-.9.1-1.4.4-1.8.7-.3.4-.6.9-.7 1.8-.1-.9-.4-1.4-.7-1.8-.4-.3-.9-.6-1.8-.7.9-.2 1.4-.4 1.8-.7.3-.4.6-.9.7-1.8Z"/></svg><span>Alternatives</span></button>
+<div class="suggest-chip" id="selection-chip" hidden>
+  <button id="chip-suggest" title="Suggest alternatives (⌘J)"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.5c.3 2.9 1.1 4.6 2.2 5.6 1 1 2.6 1.6 5.3 1.9-2.7.3-4.3.9-5.3 1.9-1.1 1-1.9 2.7-2.2 5.6-.3-2.9-1.1-4.6-2.2-5.6-1-1-2.6-1.6-5.3-1.9 2.7-.3 4.3-.9 5.3-1.9 1.1-1 1.9-2.7 2.2-5.6Z"/><path d="M16 1.5c.1.9.4 1.4.7 1.8.4.3.9.5 1.8.7-.9.1-1.4.4-1.8.7-.3.4-.6.9-.7 1.8-.1-.9-.4-1.4-.7-1.8-.4-.3-.9-.6-1.8-.7.9-.2 1.4-.4 1.8-.7.3-.4.6-.9.7-1.8Z"/></svg><span>Alternatives</span></button>
+  <button id="chip-notes" title="Move to notes (⌥⌘M)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v8.5M6.5 8 10 11.5 13.5 8"/><path d="M3 12.5v2A2.5 2.5 0 0 0 5.5 17h9a2.5 2.5 0 0 0 2.5-2.5v-2"/></svg><span>To notes</span></button>
+</div>
 <div class="suggest" id="suggest" role="dialog" aria-label="Suggested alternatives" hidden>
   <div class="suggest-head">
     <span class="suggest-label">Alternatives for</span>

@@ -24,6 +24,12 @@ npm start        # opens the writer at http://localhost:4321
   ```
   ANTHROPIC_API_KEY=sk-ant-…
   ```
+- **Notes:** each article has a private notes area, shown or hidden with the **Notes** button in the status bar (⌥⌘N). Highlight text and click **To notes** (or ⌥⌘M) to move it out of the article and into the notes. Moved text shows up as a card in the notes panel with a **Put back** button that reinserts it where it came from — found by the words around it, so it still works after you've edited elsewhere. The notes panel slides in from the right, next to the editor; hover a card and a **Goes back here** marker shows the exact spot in the article. Notes are saved at the end of the same file inside an HTML comment, so they never appear in the preview, word count, published pages or Copy for Ghost:
+  ```
+  <!-- notes
+  A sentence I cut…
+  -->
+  ```
 - Deleted articles go to `articles/.trash/`.
 
 | Shortcut | Action |
@@ -36,6 +42,8 @@ npm start        # opens the writer at http://localhost:4321
 | ⌘⇧. | Quote |
 | Tab / ⇧Tab | Indent / outdent list items |
 | ⌘J | Suggest alternatives for the highlighted text |
+| ⌥⌘M | Move the highlighted text to notes |
+| ⌥⌘N | Show / hide notes |
 | ⌘S | Save now |
 | ⌘/ | Cycle Write → Split → Preview |
 | ⌘. | Focus mode (Esc to leave) |

@@ -117,3 +117,44 @@ test('forPublishing strips front matter and title, and repairs double-pasted lin
   assert.equal(md.forPublishing(src, { includeTitle: true }), '## The Title\n\nSee [x](https://a.com/).\n\n## Next\n');
   assert.equal(md.forPublishing('Intro first.\n\n## Section'), 'Intro first.\n\n## Section\n');
 });
+
+test('notes: split and join round-trip, and stay out of everything published', () => {
+  const file = '---\nstatus: editing\n---\n\n## Title\n\nKept sentence.\n\n<!-- notes\nCut sentence.\n\nAnother idea.\n-->\n';
+  const { article, notes } = md.splitNotes(file);
+  assert.equal(article, '---\nstatus: editing\n---\n\n## Title\n\nKept sentence.\n');
+  assert.equal(notes, 'Cut sentence.\n\nAnother idea.');
+  assert.equal(md.joinNotes(article, notes), file);
+  assert.equal(md.joinNotes('Body\n', ''), 'Body\n', 'no notes leaves the file untouched');
+  assert.equal(md.joinNotes('Body', 'a --> b'), 'Body\n\n<!-- notes\na -- > b\n-->\n');
+
+  assert.ok(!md.render(file).includes('Cut'));
+  assert.equal(md.stats(file).words, 3);
+  assert.ok(!md.forPublishing(file).includes('Cut'));
+  assert.ok(!md.excerpt(file).includes('Cut'));
+  assert.equal(md.lint('Fine.\n\n<!-- notes\nthe the\n-->\n').length, 0, 'notes are not linted');
+  assert.equal(md.status(md.setMeta(file, 'status', 'final')), 'final');
+  assert.ok(md.setMeta(file, 'status', 'final').endsWith('<!-- notes\nCut sentence.\n\nAnother idea.\n-->\n'));
+});
+
+test('notes: cuts keep their location and round-trip', () => {
+  const notes = 'Free idea.\n\n[cut] {"before":"Hello ","after":" world.","lead":"","trail":""}\nbig\n[/cut]';
+  const parsed = md.parseNotes(notes);
+  assert.equal(parsed.text, 'Free idea.');
+  assert.deepEqual(parsed.cuts, [{ text: 'big', before: 'Hello ', after: ' world.', lead: '', trail: '' }]);
+  assert.equal(md.formatNotes(parsed), notes);
+  assert.deepEqual(md.parseNotes('Just text'), { text: 'Just text', cuts: [] });
+  // Cut text never leaks into the published article.
+  assert.ok(!md.render(md.joinNotes('Hi.\n', notes)).includes('big'));
+});
+
+test('findCutSpot finds where a cut came from, even after other edits', () => {
+  const cut = { before: 'There is something ', after: 'about finding things.' };
+  assert.equal(md.findCutSpot('There is something about finding things.', cut), 19);
+  // Edited earlier text: the full context no longer matches, a shorter one does.
+  assert.equal(md.findCutSpot('Here is something about finding things.', cut), 18);
+  // Start and end of the article.
+  assert.equal(md.findCutSpot('Body text here.\n', { before: '', after: 'Body text' }), 0);
+  assert.equal(md.findCutSpot('Body text here.\n', { before: 'text here.\n\n', after: '' }), 15);
+  // Gone entirely.
+  assert.equal(md.findCutSpot('Completely different.', cut), -1);
+});
