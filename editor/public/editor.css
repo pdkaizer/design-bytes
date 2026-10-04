@@ -103,6 +103,30 @@ body.no-sidebar .sidebar, body.focus .sidebar { visibility: hidden; }
 .brand h1 { margin: 0; color: var(--text); font: 700 21px/1 var(--ui); letter-spacing: -0.02em; }
 .sidebar-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
 .view-tabs { display: flex; margin: 0 12px 10px; }
+.import-btn { border: 1px solid var(--line); background: var(--bg); }
+
+.drop-hint {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  pointer-events: none;
+}
+.drop-hint > div {
+  display: grid;
+  gap: 4px;
+  padding: 28px 40px;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+.drop-hint strong { font-size: 18px; }
+.drop-hint span { color: var(--muted); }
 .view-tabs button { flex: 1; }
 .view-tabs .count { margin-left: 2px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 
@@ -929,6 +953,19 @@ dialog input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 dialog small { color: var(--muted); font-weight: 400; }
 dialog small:empty { display: none; }
 .dialog-actions { display: flex; flex-direction: row-reverse; gap: 8px; }
+
+.import-dialog { width: min(560px, calc(100vw - 32px)); }
+.import-rows { display: grid; gap: 14px; max-height: 55vh; margin-bottom: 18px; overflow-y: auto; }
+.import-row { display: grid; gap: 4px; }
+.import-row .from { color: var(--muted); font-size: 12px; }
+.import-row .from b { color: var(--text); font-weight: 600; }
+.import-name { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.import-name:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.import-name span { padding: 0 2px 0 10px; color: var(--muted); font: 13px var(--mono); white-space: nowrap; }
+.import-name span + input + span { padding: 0 10px 0 0; }
+.import-dialog .import-name input { flex: 1; min-width: 0; height: 34px; padding: 0 2px; border: 0; outline: 0; font: 14px var(--mono); }
+.import-row .note { min-height: 1.3em; color: var(--muted); font-size: 12px; }
+.import-row .note.warn { color: var(--warn); }
 
 /* Small screens ------------------------------------------------------------- */
 

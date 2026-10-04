@@ -90,11 +90,21 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
   if (!slug) {
     if (method === 'GET') return json(res, 200, await coll.list());
     if (method === 'POST') {
-      const { title } = await readJson(req);
+      const { title, content: imported, filename, name: chosen } = await readJson(req);
       const clean = String(title || '').trim();
       let slugged;
       let content;
-      if (isNote) {
+      if (typeof imported === 'string') {
+        // Importing a Markdown file: keep its text, name it after its title (or file name),
+        // and make sure an article has one of our statuses.
+        content = imported.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+        const stem = String(filename || '').replace(/\.[^.]*$/, '');
+        const name = String(chosen || '').trim() || md.title(content) || stem || (isNote ? 'note' : 'untitled');
+        slugged = await coll.uniqueSlug(store.isSlug(name) ? name.toLowerCase() : store.slugify(name));
+        if (!isNote && !md.STATUSES.includes(String(md.frontMatter(content).data.status || '').toLowerCase())) {
+          content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
+        }
+      } else if (isNote) {
         // Quick notes are named by when they were made: 2026-10-04-1532.md
         const d = new Date();
         const p = (n) => String(n).padStart(2, '0');
@@ -104,6 +114,8 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
         slugged = await coll.uniqueSlug(store.slugify(clean || 'Untitled'));
         content = md.setMeta(`# ${clean || 'Untitled'}\n\n`, 'status', md.DEFAULT_STATUS);
       }
+      // Record when it was added (an imported file keeps a created: date it already has).
+      if (!md.created(content)) content = md.setMeta(content, 'created', md.formatStamp());
       await fsp.mkdir(coll.dir, { recursive: true });
       await store.writeAtomic(coll.file(slugged), content);
       return json(res, 201, await coll.read(slugged));

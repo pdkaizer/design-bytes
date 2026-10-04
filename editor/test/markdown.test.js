@@ -197,3 +197,27 @@ test('readability: "just as" and "rather than" are not filler', () => {
   assert.deepEqual(kinds('Just as Morris said, form rather than ornament.'), []);
   assert.deepEqual(kinds('It was just rather good.'), ['just', 'rather']);
 });
+
+test('front matter from other tools (YAML lists, title:) is understood', () => {
+  const src = '---\ntitle: "From Obsidian"\ntags:\n  - design\n  - craft\naliases: []\n---\n\nBody text.\n';
+  const fm = md.frontMatter(src);
+  assert.equal(fm.data.title, 'From Obsidian');
+  assert.equal(fm.body, '\nBody text.\n');
+  assert.equal(md.title(src), 'From Obsidian');
+  assert.equal(md.render(src), '<p>Body text.</p>');
+  const withStatus = md.setMeta(src, 'status', 'backlog');
+  assert.ok(withStatus.startsWith('---\ntitle: "From Obsidian"\ntags:\n  - design\n  - craft\naliases: []\nstatus: backlog\n---\n'));
+  // A list between dividers is still content, not front matter.
+  assert.equal(md.frontMatter('---\n- one\n- two\n---\n').end, 0);
+});
+
+test('created: dates are written, read back and survive other edits', () => {
+  const stamp = md.formatStamp(new Date(2026, 9, 4, 19, 32));
+  assert.equal(stamp, '2026-10-04 19:32');
+  const src = md.setMeta(md.setMeta('# Hi\n', 'status', 'backlog'), 'created', stamp);
+  assert.deepEqual(md.created(src), { ms: new Date(2026, 9, 4, 19, 32).getTime(), hasTime: true });
+  assert.deepEqual(md.created('---\ncreated: 2026-10-01\n---\n'), { ms: new Date(2026, 9, 1).getTime(), hasTime: false });
+  assert.equal(md.created('# No front matter'), null);
+  assert.equal(md.created(md.setMeta(src, 'status', 'final')).ms, new Date(2026, 9, 4, 19, 32).getTime(), 'status changes keep it');
+  assert.ok(!md.render(src).includes('2026'), 'never shown in the article');
+});

@@ -1,5 +1,6 @@
 ---
 status: published
+created: 2025-08-05 20:20
 ---
 
 ## How the Arts and Crafts Movement Shaped Digital Product Design

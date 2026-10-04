@@ -87,9 +87,11 @@
     const text = String(src == null ? '' : src);
     const m = text.match(FRONT);
     const inner = m ? m[1].split(/\r?\n/) : [];
-    // Only treat it as front matter if every line is "key: value" (or blank / a comment),
-    // so an article that happens to start with a --- divider isn't swallowed.
-    if (!m || !inner.every((l) => !l.trim() || l.trim().startsWith('#') || META_LINE.test(l))) {
+    // Only treat it as front matter if every line is "key: value", a blank or comment, or an
+    // indented / "- item" continuation (YAML lists from tools like Obsidian or Jekyll), with at
+    // least one key — so an article that happens to start with a --- divider isn't swallowed.
+    const yamlish = (l) => !l.trim() || l.trim().startsWith('#') || META_LINE.test(l) || /^(\s+\S|-\s)/.test(l);
+    if (!m || !inner.every(yamlish) || !inner.some((l) => META_LINE.test(l))) {
       return { data: {}, body: text, end: 0, lines: 0 };
     }
     const data = {};
@@ -203,6 +205,28 @@
     }
     body = body.replace(/\]\(\[[^\]]*\]\(([^()\s]+)\)\)/g, ']($1)');
     return body.replace(/^\s*\n/, '').replace(/\s*$/, '\n');
+  }
+
+  // created: in the front matter — when a document was added — in local time,
+  // written as "2026-10-04 19:32" (a date alone, "2026-10-01", is fine too).
+  function formatStamp(date = new Date()) {
+    const p = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+  }
+
+  function parseStamp(value) {
+    const s = String(value || '').trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime();
+    const t = Date.parse(s); // anything else Date understands, e.g. full ISO with a time zone
+    return Number.isNaN(t) ? null : t;
+  }
+
+  // → { ms, hasTime } for the document's created: date, or null if it has none.
+  function created(src) {
+    const raw = String(frontMatter(src).data.created || '').trim();
+    const ms = parseStamp(raw);
+    return ms == null ? null : { ms, hasTime: /\d:\d/.test(raw) };
   }
 
   function status(src) {
@@ -548,7 +572,8 @@
     const atx = text.match(/^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m);
     if (atx) return plainText(inline(atx[1])).trim();
     const setext = text.match(/^(\S.*)\n {0,3}(?:=+|-+)[ \t]*$/m);
-    return setext ? plainText(inline(setext[1])).trim() : '';
+    if (setext) return plainText(inline(setext[1])).trim();
+    return String(frontMatter(src).data.title || '').trim(); // e.g. title: in an imported file
   }
 
   // A title to show for any document: its first heading, or else its first line.
@@ -896,6 +921,6 @@
 
   return {
     render, inline, title, displayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, status, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, status, created, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
   };
 });

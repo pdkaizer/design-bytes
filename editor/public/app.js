@@ -100,6 +100,16 @@
     return h.startsWith('note/') ? { kind: 'notes', slug: h.slice(5) } : { kind: 'articles', slug: h };
   }
 
+  // "Oct 4", "Oct 4, 2025" or, with the time, "Oct 4, 7:08 PM"; long: "Sat, Oct 4, 2026".
+  function addedLabel(ms, hasTime, long = false) {
+    const d = new Date(ms);
+    const opts = long
+      ? { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }
+      : { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) };
+    if (hasTime) Object.assign(opts, { hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleString('en-US', opts);
+  }
+
   async function loadList() {
     [state.articles, state.notes] = await Promise.all([api('GET', '/api/articles'), api('GET', '/api/notes')]);
     renderList();
@@ -180,14 +190,16 @@
       title.textContent = a.title;
       const meta = document.createElement('span');
       meta.className = 'item-meta';
+      const added = a.created ? addedLabel(a.created, notes && a.createdHasTime) : null; // notes show the time too
+      btn.title = [a.created && `Added ${addedLabel(a.created, a.createdHasTime, true)}`, `Last edited ${ago(a.mtime)}`].filter(Boolean).join(' · ');
       if (notes) {
-        meta.textContent = `${ago(a.mtime)} · ${a.words.toLocaleString()} words`;
+        meta.textContent = `${added || ago(a.mtime)} · ${a.words.toLocaleString()} words`;
       } else {
         const badge = document.createElement('span');
         badge.className = 'badge';
         badge.dataset.status = a.status;
         badge.textContent = STATUS_LABELS[a.status];
-        meta.append(badge, ` · ${a.words.toLocaleString()} words · ${ago(a.mtime)}`);
+        meta.append(badge, ` · ${a.words.toLocaleString()} words · ${added ? `Added ${added}` : ago(a.mtime)}`);
       }
       btn.append(title, meta);
       li.append(btn);
@@ -356,7 +368,9 @@
       const isNote = state.doc.kind === 'notes';
       const title = isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
       el.title.textContent = title;
-      el.file.textContent = `${KINDS[state.doc.kind].folder}/${state.doc.slug}.md`;
+      const added = md.created(text);
+      el.file.textContent = `${KINDS[state.doc.kind].folder}/${state.doc.slug}.md` +
+        (added ? ` · Added ${addedLabel(added.ms, added.hasTime, true)}` : '');
       document.title = `${title} · DB Writer`;
 
       const s = md.stats(text);
@@ -376,10 +390,13 @@
       body.dataset.status = status || '';
 
       const entry = listOf(state.doc.kind).find((a) => a.slug === state.doc.slug);
-      if (entry && (entry.title !== title || entry.words !== s.words || entry.status !== status)) {
+      const createdMs = added ? added.ms : null;
+      if (entry && (entry.title !== title || entry.words !== s.words || entry.status !== status || entry.created !== createdMs)) {
         entry.title = title;
         entry.words = s.words;
         entry.status = status;
+        entry.created = createdMs;
+        entry.createdHasTime = !!added?.hasTime;
         renderList();
       }
     };
@@ -1396,6 +1413,158 @@
   new ResizeObserver(() => { if (read.on) renderReadability(); }).observe(ed);
 
   // ---------------------------------------------------------------------------
+  // Import Markdown files — into whichever tab the sidebar is on
+
+  const IMPORTABLE = /\.(md|markdown|mdown|mkd|txt)$/i;
+  const MAX_IMPORT = 5 * 1024 * 1024;
+
+  async function importFiles(files) {
+    const kind = state.view;
+    const wanted = [...files].filter((f) => IMPORTABLE.test(f.name) || f.type === 'text/markdown');
+    const skipped = files.length - wanted.length;
+    if (!wanted.length) { toast('Only Markdown (.md) or plain text (.txt) files can be imported'); return; }
+
+    const failed = [];
+    const items = [];
+    for (const file of wanted) {
+      if (file.size > MAX_IMPORT) { failed.push(`${file.name} (larger than 5 MB)`); continue; }
+      const content = await file.text();
+      const title = md.title(content) || (kind === 'notes' ? md.displayTitle(content) : '');
+      const stem = file.name.replace(/\.[^.]*$/, '');
+      items.push({ file, content, title, name: slugifyTitle(title || stem) || slugifyTitle(stem) || 'untitled' });
+    }
+    if (items.length && !(await askImportNames(items, kind))) return; // cancelled
+
+    await save();
+    let last = null;
+    let done = 0;
+    for (const item of items) {
+      try {
+        last = await api('POST', `/api/${kind}`, { content: item.content, filename: item.file.name, name: item.name });
+        done++;
+      } catch (err) {
+        failed.push(`${item.file.name} (${err.message})`);
+      }
+    }
+    if (done) {
+      await loadList();
+      load(last, kind);
+    }
+    const what = kind === 'notes' ? 'quick note' : 'article';
+    const parts = [];
+    if (done === 1) parts.push(`Imported “${el.title.textContent}”${kind === 'articles' ? ' into Backlog' : ''}`);
+    else if (done) parts.push(`Imported ${done} ${what}s`);
+    if (failed.length) parts.push(`couldn’t import ${failed.join(', ')}`);
+    if (skipped) parts.push(`skipped ${skipped} file${skipped === 1 ? '' : 's'} that ${skipped === 1 ? 'isn’t' : 'aren’t'} Markdown`);
+    toast(parts.join(' · '));
+  }
+
+  // Lets you check and change each file's name before importing. Resolves false if cancelled.
+  function askImportNames(items, kind) {
+    const dialog = $('#import-dialog');
+    const folder = KINDS[kind].folder;
+    const taken = new Set(listOf(kind).map((d) => d.slug));
+    $('#import-title').textContent = items.length === 1 ? 'Import file' : `Import ${items.length} files`;
+    $('#import-sub').textContent = kind === 'notes'
+      ? 'They’ll be added as quick notes. Change a file name if you like.'
+      : 'They’ll be added as articles in Backlog. Change a file name if you like.';
+    $('#import-ok').textContent = items.length === 1 ? 'Import' : `Import ${items.length}`;
+
+    const rows = items.map((item) => {
+      const row = document.createElement('div');
+      row.className = 'import-row';
+      const from = document.createElement('div');
+      from.className = 'from';
+      from.append('From ');
+      const b = document.createElement('b');
+      b.textContent = item.file.name;
+      from.append(b, item.title ? ` · “${item.title}”` : '');
+      const box = document.createElement('label');
+      box.className = 'import-name';
+      const pre = document.createElement('span');
+      pre.textContent = `${folder}/`;
+      const input = document.createElement('input');
+      input.value = item.name;
+      input.spellcheck = false;
+      input.setAttribute('aria-label', `File name for ${item.file.name}`);
+      const post = document.createElement('span');
+      post.textContent = '.md';
+      box.append(pre, input, post);
+      const note = document.createElement('div');
+      note.className = 'note';
+      row.append(from, box, note);
+      return { item, input, note, row };
+    });
+
+    // Show what each name will really be saved as, and flag clashes.
+    const check = () => {
+      const used = new Set(taken);
+      for (const r of rows) {
+        const base = slugifyTitle(r.input.value) || 'untitled';
+        let name = base;
+        for (let n = 2; used.has(name); n++) name = `${base}-${n}`;
+        used.add(name);
+        r.item.name = name;
+        const changed = name !== r.input.value.trim();
+        r.note.classList.toggle('warn', name !== base);
+        r.note.textContent = name !== base
+          ? `“${base}” is already taken — will be saved as ${folder}/${name}.md`
+          : changed ? `Will be saved as ${folder}/${name}.md` : '';
+      }
+    };
+    rows.forEach((r) => r.input.addEventListener('input', check));
+    check();
+    $('#import-rows').replaceChildren(...rows.map((r) => r.row));
+
+    return new Promise((resolve) => {
+      dialog.returnValue = '';
+      dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok'), { once: true });
+      dialog.showModal();
+      rows[0].input.focus();
+      rows[0].input.select();
+    });
+  }
+
+  $('#import').addEventListener('click', () => $('#import-picker').click());
+  $('#import-picker').addEventListener('change', () => {
+    importFiles([...$('#import-picker').files]);
+    $('#import-picker').value = '';
+  });
+
+  // Drop Markdown files anywhere on the window. (Images dropped on the editor are
+  // handled by the editor itself, which marks the event as dealt with.)
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  let dragDepth = 0;
+  function showDropHint(on) {
+    $('#drop-hint').hidden = !on;
+    $('#drop-where').textContent = state.view === 'notes' ? 'as quick notes' : 'as articles in Backlog';
+  }
+  document.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    dragDepth++;
+    if (e.target !== ed) showDropHint(true);
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) showDropHint(false);
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); // don't let the browser open the file instead
+    if (e.target === ed) showDropHint(false);
+    else if ($('#drop-hint').hidden) showDropHint(true);
+  });
+  document.addEventListener('drop', (e) => {
+    dragDepth = 0;
+    showDropHint(false);
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    const files = [...e.dataTransfer.files].filter((f) => !f.type.startsWith('image/'));
+    if (files.length) importFiles(files);
+  });
+
+  // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
 
   function stamp() {
@@ -1491,6 +1660,7 @@
         load(n, 'notes');
         if (body.dataset.mode === 'preview') setMode('write');
         ed.focus();
+        ed.setSelectionRange(ed.value.length, ed.value.length); // start typing below the created: line
       } catch (err) {
         toast(`Couldn’t create note: ${err.message}`);
       }
@@ -1702,7 +1872,7 @@
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === 'Escape') {
       if (!sug.panel.hidden) { closeSuggest(); ed.focus(); return; }
-      if (el.dialog.open) return;
+      if (el.dialog.open || $('#import-dialog').open) return;
       if (historyOpen()) { closeHistory(); return; }
       if (!el.menu.hidden) { toggleMenu(false); el.menuBtn.focus(); return; }
       if (!el.issues.hidden) { el.issues.hidden = true; return; }

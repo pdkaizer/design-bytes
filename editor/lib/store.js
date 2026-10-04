@@ -61,9 +61,10 @@ function collection(kind) {
       const { slug, content, mtime } = await read(name.slice(0, -3));
       const { words, minutes } = md.stats(content);
       const title = (isNote ? md.displayTitle(content) : md.title(content)) || (isNote ? 'Untitled note' : slug);
+      const added = md.created(content); // { ms, hasTime } from created: in the front matter
       return isNote
-        ? { slug, title, excerpt: md.excerpt(content, 140), words, mtime }
-        : { slug, title, status: md.status(content), excerpt: md.excerpt(content), words, minutes, mtime };
+        ? { slug, title, excerpt: md.excerpt(content, 140), words, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime }
+        : { slug, title, status: md.status(content), excerpt: md.excerpt(content), words, minutes, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime };
     }));
     return docs.sort((a, b) => b.mtime - a.mtime);
   }

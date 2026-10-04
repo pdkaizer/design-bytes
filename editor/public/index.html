@@ -21,6 +21,7 @@
     </div>
     <div class="sidebar-actions">
       <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
+      <button id="import" class="icon-btn import-btn" title="Import Markdown files (or drop them on the window)" aria-label="Import Markdown files"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.5V3.5M6.5 7 10 3.5 13.5 7"/><path d="M3 12.5v2A2.5 2.5 0 0 0 5.5 17h9a2.5 2.5 0 0 0 2.5-2.5v-2"/></svg></button>
       <button id="new" class="btn primary" title="New article">New</button>
     </div>
     <div class="filters" id="filters" role="group" aria-label="Filter by status"></div>
@@ -225,6 +226,18 @@
   </div>
 </div>
 
+<dialog id="import-dialog" class="import-dialog">
+  <form method="dialog">
+    <h2 id="import-title">Import</h2>
+    <p id="import-sub"></p>
+    <div class="import-rows" id="import-rows"></div>
+    <div class="dialog-actions">
+      <button value="ok" class="btn primary" id="import-ok">Import</button>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dialog">
   <form method="dialog">
     <h2 id="dialog-title"></h2>
@@ -242,6 +255,8 @@
 </dialog>
 
 <input type="file" id="file-picker" accept="image/*" multiple hidden>
+<input type="file" id="import-picker" accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain" multiple hidden>
+<div class="drop-hint" id="drop-hint" hidden><div><strong>Drop to import</strong><span id="drop-where"></span></div></div>
 
 <script src="/lib/markdown.js"></script>
 <script src="/app.js"></script>
