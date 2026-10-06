@@ -55,7 +55,7 @@ ${body}
 function renderArticle(markdown, { mtime = Date.now() } = {}) {
   const { minutes } = md.stats(markdown);
   const meta = `<p class="meta">${formatDate(mtime)} · ${minutes} min read</p>`;
-  let html = md.render(markdown);
+  let html = md.render(markdown, { withTitle: true });
   html = /^<h[12][ >]/.test(html)
     ? html.replace(/^(<h[12][^>]*>[\s\S]*?<\/h[12]>)/, `$1\n${meta}`)
     : `${meta}\n${html}`;

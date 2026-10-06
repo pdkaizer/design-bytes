@@ -363,7 +363,7 @@
     const run = () => {
       if (!state.doc) return;
       const text = ed.value;
-      if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text);
+      if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text, { withTitle: state.doc.kind === 'articles' });
 
       const isNote = state.doc.kind === 'notes';
       const title = isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
@@ -681,10 +681,11 @@
   // ---------------------------------------------------------------------------
   // Article status — stored as `status:` in the file's front matter
 
-  function setArticleStatus(value) {
+  // Changes one front matter line in the editor, keeping undo and the caret sensible.
+  function setMetaInEditor(key, value, options) {
     const text = ed.value;
-    const next = md.setMeta(text, 'status', value);
-    if (next === text) return;
+    const next = md.setMeta(text, key, value, options);
+    if (next === text) return false;
     // Only replace the changed head of the file, so undo and the caret stay sensible.
     let same = 0;
     while (same < text.length && same < next.length && text[text.length - 1 - same] === next[next.length - 1 - same]) same++;
@@ -695,8 +696,30 @@
     const shift = (pos) => (pos >= headEnd ? pos + delta : Math.min(pos, next.length - same));
     ed.setSelectionRange(shift(selectionStart), shift(selectionEnd));
     ed.scrollTop = scrollTop;
-    toast(`Marked as ${STATUS_LABELS[value]}`);
+    return true;
   }
+
+  function setArticleStatus(value) {
+    if (setMetaInEditor('status', value)) toast(`Marked as ${STATUS_LABELS[value]}`);
+  }
+
+  // An article's file name follows the slug: line in its front matter. Once you've
+  // changed it and moved the cursor out of the front matter, the file is renamed.
+  let slugTimer = 0;
+  function maybeRenameFromSlug() {
+    clearTimeout(slugTimer);
+    slugTimer = setTimeout(() => {
+      const doc = state.doc;
+      if (!doc || doc.kind !== 'articles' || state.renaming || state.conflict) return;
+      const fm = md.frontMatter(ed.value);
+      const want = String(fm.data.slug || '').trim();
+      if (!want || want === doc.slug || want === state.slugRefused) return;
+      if (document.activeElement === ed && ed.selectionStart <= fm.end) return; // still editing it
+      renameTo(want);
+    }, 400);
+  }
+  document.addEventListener('selectionchange', maybeRenameFromSlug);
+  ed.addEventListener('blur', maybeRenameFromSlug);
 
   el.stageSelect.addEventListener('change', () => {
     if (state.doc) setArticleStatus(el.stageSelect.value);
@@ -1170,7 +1193,7 @@
       legend.textContent = '';
       const article = document.createElement('article');
       article.className = 'article';
-      article.innerHTML = md.render(hist.content);
+      article.innerHTML = md.render(hist.content, { withTitle: state.doc.kind === 'articles' });
       view.replaceChildren(article);
       return;
     }
@@ -1693,18 +1716,38 @@
       hint: `Letters, numbers and dashes. Currently ${folder}/${doc.slug}.md`, confirm: 'Rename',
     });
     if (!to || to === doc.slug) return;
-    await save();
+    await renameTo(to);
+  }
+
+  async function renameTo(to) {
+    const doc = state.doc;
+    if (!doc) return;
+    const folder = KINDS[doc.kind].folder;
+    state.renaming = true;
     try {
+      await save();
       const a = await api('POST', `${docUrl(doc)}/rename`, { to });
+      if (state.doc !== doc) return;
+      const renamed = a.slug !== doc.slug;
       doc.slug = a.slug;
       doc.mtime = a.mtime;
+      doc.saved = a.content;
+      // The server keeps slug: in step with the file name; match it in the editor.
+      if (doc.kind === 'articles') setMetaInEditor('slug', a.slug, { after: 'title' });
       prefs.set('last', { kind: doc.kind, slug: a.slug });
       history.replaceState(null, '', hashFor(doc.kind, a.slug));
       await loadList();
       refresh(true);
-      toast(`Renamed to ${folder}/${a.slug}.md`);
+      if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
     } catch (err) {
-      toast(`Couldn’t rename: ${err.message}`);
+      if (err.status === 409) {
+        state.slugRefused = to;
+        toast(`${folder}/${to}.md already exists — keeping ${folder}/${doc.slug}.md. Try a different slug.`);
+      } else {
+        toast(`Couldn’t rename: ${err.message}`);
+      }
+    } finally {
+      state.renaming = false;
     }
   }
 
@@ -1761,7 +1804,7 @@
   }
 
   async function copyHtml() {
-    toast(await copyText(md.render(ed.value)) ? 'Article HTML copied' : 'Clipboard not available');
+    toast(await copyText(md.render(ed.value, { withTitle: state.doc.kind === 'articles' })) ? 'Article HTML copied' : 'Clipboard not available');
   }
 
   let copiedTimer = 0;

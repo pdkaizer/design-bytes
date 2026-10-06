@@ -1,9 +1,9 @@
 ---
+title: How the Arts and Crafts Movement Shaped Digital Product Design
+slug: morris-material
 status: published
 created: 2025-08-05 20:20
 ---
-
-## How the Arts and Crafts Movement Shaped Digital Product Design
 
 There’s something beautifully ironic about finding 19th-century craftsmanship principles embedded in the sleek interfaces of our smartphones. When [William Morris](https://en.wikipedia.org/wiki/William_Morris) proclaimed “have nothing in your house that is not useful or beautiful” in 1882, he couldn’t have imagined his philosophy would one day guide the design of apps used by billions. Yet the DNA of the Arts and Crafts movement runs deep through modern digital product design, influencing everything from [Google’s Material Design]([https://m3.material.io](https://m3.material.io/)) to [Apple’s relentless pursuit of simplicity](https://goodmansoutonte.medium.com/simplicity-sells-how-apple-turned-minimalism-into-a-billion-dollar-religion-c3305d5f37b8).
 

@@ -33,6 +33,16 @@ npm start        # opens the writer at http://localhost:4321
 - **Version history:** the **History** button in the status bar (or ⋯ → Version history) lists earlier versions of the article by day. Pick one to see what's changed since (added and removed text highlighted) or a preview of how it read, then **Restore this version** if you want it back — your current text is saved as a version first, so restoring can be undone. While you edit, a version is kept every few minutes; you can also save a named one ("Before restructuring") any time. Versions live in `articles/.history/` (git-ignored, so drafts stay private). Older automatic versions thin out — everything from the last two days, then hourly for two weeks, then daily — while named versions are kept for good.
 - **Readability:** click **Readability** in the status bar to highlight long sentences (25+ words) and very long ones (35+), and underline passive voice, adverbs and wordy phrases or filler. Each type can be switched on or off, the button shows the article's reading grade (Flesch–Kincaid), and putting your cursor in a highlight shows why it's marked. Code, headings, link URLs, the status block and notes are ignored.
 - **Import:** the import button next to **New** (or dropping `.md` / `.txt` files on the window) brings Markdown files in — as articles in Backlog on the Articles tab, or as quick notes on the Quick notes tab. Before importing, a dialog shows each file's proposed file name, which you can change; it warns if a name is already taken. Front matter from other tools (Obsidian, Jekyll, Ghost exports: `title:`, `tags:` lists…) is kept, and a `title:` there is used when the file has no heading.
+- **Title and file name in front matter (articles):** an article's title lives in `title:` and its file name in `slug:`, so the body starts with the content itself:
+  ```
+  ---
+  title: The Conductor's Role
+  slug: the-conductors-role
+  status: backlog
+  created: 2026-10-01
+  ---
+  ```
+  The preview and published pages show the title at the top. Change `slug:` and, once your cursor leaves the front matter, the file is renamed to match (if the name is taken, it says so and keeps the old one). ⋯ → Rename file… updates `slug:` too. Quick notes don't use these — their first line is the title.
 - **Date added:** every article and quick note records when it was added as `created:` in its front matter (e.g. `created: 2026-10-04 19:32`), set automatically on New and on import (an imported file that already has a `created:` keeps it). It shows in the sidebar and under the title; edit the line to change it.
 - **Quick notes:** switch the sidebar to **Quick notes** for jotting things down outside of Design Bytes. **New** starts a note straight away — no title needed; its first line becomes the title. Notes get autosave, preview, Readability, Alternatives and version history, but no status, Ghost copy or notes panel, and they're never published or built.
 - Deleted articles go to `articles/.trash/`, along with their history.

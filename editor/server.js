@@ -101,8 +101,14 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
         const stem = String(filename || '').replace(/\.[^.]*$/, '');
         const name = String(chosen || '').trim() || md.title(content) || stem || (isNote ? 'note' : 'untitled');
         slugged = await coll.uniqueSlug(store.isSlug(name) ? name.toLowerCase() : store.slugify(name));
-        if (!isNote && !md.STATUSES.includes(String(md.frontMatter(content).data.status || '').toLowerCase())) {
-          content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
+        if (!isNote) {
+          // Articles keep their title and file name in front matter.
+          content = md.liftTitle(content);
+          if (!md.title(content)) content = md.setMeta(content, 'title', stem || 'Untitled', { first: true });
+          content = md.setMeta(content, 'slug', slugged, { after: 'title' });
+          if (!md.STATUSES.includes(String(md.frontMatter(content).data.status || '').toLowerCase())) {
+            content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
+          }
         }
       } else if (isNote) {
         // Quick notes are named by when they were made: 2026-10-04-1532.md
@@ -112,7 +118,9 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
         content = clean ? `# ${clean}\n\n` : '';
       } else {
         slugged = await coll.uniqueSlug(store.slugify(clean || 'Untitled'));
-        content = md.setMeta(`# ${clean || 'Untitled'}\n\n`, 'status', md.DEFAULT_STATUS);
+        content = md.setMeta('', 'title', clean || 'Untitled');
+        content = md.setMeta(content, 'slug', slugged);
+        content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
       }
       // Record when it was added (an imported file keeps a created: date it already has).
       if (!md.created(content)) content = md.setMeta(content, 'created', md.formatStamp());
@@ -152,12 +160,19 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
 
   if (action === 'rename' && method === 'POST') {
     const { to } = await readJson(req);
-    const next = store.isSlug(String(to || '')) ? String(to) : store.slugify(to || '');
+    const next = store.isSlug(String(to || '')) ? String(to).toLowerCase() : store.slugify(to || '');
     if (next !== slug) {
       if (await store.exists(coll.file(next))) throw httpError(409, `${coll.folder}/${next}.md already exists`);
       await fsp.access(file);
       await fsp.rename(file, coll.file(next));
       await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
+    }
+    if (!isNote) {
+      // Keep the slug: line in step with the file name.
+      const { content } = await coll.read(next);
+      if (md.frontMatter(content).data.slug !== next) {
+        await store.writeAtomic(coll.file(next), md.setMeta(content, 'slug', next, { after: 'title' }));
+      }
     }
     return json(res, 200, await coll.read(next));
   }

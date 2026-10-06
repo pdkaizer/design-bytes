@@ -103,14 +103,21 @@
   }
 
   // Returns src with `key` set to `value` in its front matter (adding the block if needed).
-  function setMeta(src, key, value) {
+  // A newly added key goes at the bottom of the block — or at the top (first), or
+  // right after another key (after: 'title').
+  function setMeta(src, key, value, { first = false, after = '' } = {}) {
     const text = String(src == null ? '' : src);
     const fm = frontMatter(text);
-    const line = `${key}: ${value}`;
+    let v = String(value);
+    if (/: |\s#|^[\s'"&*!|>%@`{[\]-]|\s$/.test(v) && !v.includes('"')) v = `"${v}"`; // keep it valid YAML
+    const line = `${key}: ${v}`;
     if (!fm.end) return `---\n${line}\n---\n\n${text.replace(/^\s*\n/, '')}`;
     const inner = text.match(FRONT)[1].split(/\r?\n/);
     const at = inner.findIndex((l) => l.startsWith(`${key}:`));
+    const anchor = after ? inner.findIndex((l) => l.startsWith(`${after}:`)) : -1;
     if (at > -1) inner[at] = line;
+    else if (anchor > -1) inner.splice(anchor + 1, 0, line);
+    else if (first || after) inner.unshift(line);
     else inner.push(line);
     return `---\n${inner.filter((l) => l.trim()).join('\n')}\n---\n${fm.body}`;
   }
@@ -200,7 +207,11 @@
   // title heading, since the publishing system has its own title field.
   function forPublishing(src, { includeTitle = false } = {}) {
     let body = articleBody(src).replace(/\r\n?/g, '\n').replace(/^\s*\n/, '');
-    if (!includeTitle) {
+    const fmTitle = String(frontMatter(src).data.title || '').trim();
+    if (fmTitle) {
+      // The title lives in front matter, so the body has none to strip.
+      if (includeTitle) body = `# ${fmTitle}\n\n${body}`;
+    } else if (!includeTitle) {
       body = body.replace(/^ {0,3}#{1,6}[ \t]+.*\n?/, '').replace(/^\S.*\n {0,3}(?:=+|-+)[ \t]*(?:\n|$)/, '');
     }
     body = body.replace(/\]\(\[[^\]]*\]\(([^()\s]+)\)\)/g, ']($1)');
@@ -237,12 +248,16 @@
   // ---------------------------------------------------------------------------
   // Block level
 
-  function render(src) {
+  // withTitle: show the front matter title: as a heading at the top (articles).
+  function render(src, { withTitle = false } = {}) {
     const text = articleBody(src)
       .replace(/\r\n?/g, '\n')
       .replace(/\t/g, '    ')
       .replace(/\u0000/g, '�');
-    return parseBlocks(text.split('\n'), { slugs: new Map() }, false);
+    const ctx = { slugs: new Map() };
+    const fmTitle = withTitle ? String(frontMatter(src).data.title || '').trim() : '';
+    const head = fmTitle ? `${heading(1, fmTitle.replace(/[\\`*_[\]#]/g, '\\$&'), ctx)}\n` : '';
+    return head + parseBlocks(text.split('\n'), ctx, false);
   }
 
   function parseBlocks(lines, ctx, tight) {
@@ -568,12 +583,29 @@
   // Helpers for the writing tools
 
   function title(src) {
+    const fmTitle = String(frontMatter(src).data.title || '').trim();
+    if (fmTitle) return fmTitle; // articles keep their title in front matter
     const text = articleBody(src);
     const atx = text.match(/^ {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/m);
     if (atx) return plainText(inline(atx[1])).trim();
     const setext = text.match(/^(\S.*)\n {0,3}(?:=+|-+)[ \t]*$/m);
-    if (setext) return plainText(inline(setext[1])).trim();
-    return String(frontMatter(src).data.title || '').trim(); // e.g. title: in an imported file
+    return setext ? plainText(inline(setext[1])).trim() : '';
+  }
+
+  // Moves an article's title out of the body into front matter: the first heading
+  // (if it's the first thing in the body) becomes title:, and the heading line goes.
+  // Files that already have a title: are left as they are.
+  function liftTitle(src) {
+    const text = String(src || '');
+    const fm = frontMatter(text);
+    if (String(fm.data.title || '').trim()) return text;
+    const body = fm.body;
+    const m = body.match(/^\s*?(?:^|\n) {0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*(?:\n|$)/);
+    const lead = body.match(/^\s*/)[0];
+    if (!m || body.slice(lead.length).match(/^ {0,3}#{1,6}[ \t]/) === null) return text;
+    const heading = plainText(inline(m[1])).trim();
+    const rest = body.slice(lead.length).replace(/^.*(?:\n|$)/, '').replace(/^\s*\n/, '');
+    return setMeta(text.slice(0, fm.end) + (fm.end ? '\n' : '') + rest, 'title', heading, { first: true });
   }
 
   // A title to show for any document: its first heading, or else its first line.
@@ -921,6 +953,6 @@
 
   return {
     render, inline, title, displayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, status, created, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, liftTitle, status, created, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
   };
 });

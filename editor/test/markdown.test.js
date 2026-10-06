@@ -84,8 +84,8 @@ test('lint finds pasted-twice links, repeated words and double spaces', () => {
 test('renders the real article without leaking markdown', () => {
   const file = path.join(__dirname, '..', '..', 'articles', 'morris-material.md');
   if (!fs.existsSync(file)) return;
-  const html = md.render(fs.readFileSync(file, 'utf8'));
-  assert.ok(html.startsWith('<h2 id="how-the-arts-and-crafts-movement-shaped-digital-product-design">'));
+  const html = md.render(fs.readFileSync(file, 'utf8'), { withTitle: true });
+  assert.ok(html.startsWith('<h1 id="how-the-arts-and-crafts-movement-shaped-digital-product-design">'), 'title comes from front matter');
   assert.ok(!/\]\(|\*\*/.test(html), 'no raw link or bold syntax left');
   assert.ok(html.includes('<a href="https://m3.material.io/">Google’s Material Design</a>'));
 });
@@ -220,4 +220,20 @@ test('created: dates are written, read back and survive other edits', () => {
   assert.equal(md.created('# No front matter'), null);
   assert.equal(md.created(md.setMeta(src, 'status', 'final')).ms, new Date(2026, 9, 4, 19, 32).getTime(), 'status changes keep it');
   assert.ok(!md.render(src).includes('2026'), 'never shown in the article');
+});
+
+test('article titles live in front matter', () => {
+  const old = '---\nstatus: backlog\ncreated: 2026-10-01\n---\n\n# The Conductor’s Role\n\n## Why Design Work\n\nBody.\n';
+  const lifted = md.liftTitle(old);
+  assert.equal(lifted, '---\ntitle: The Conductor’s Role\nstatus: backlog\ncreated: 2026-10-01\n---\n\n## Why Design Work\n\nBody.\n');
+  assert.equal(md.liftTitle(lifted), lifted, 'already lifted: unchanged');
+  assert.equal(md.liftTitle('Intro first.\n\n# Later heading\n'), 'Intro first.\n\n# Later heading\n', 'only a leading heading is lifted');
+  assert.equal(md.title(lifted), 'The Conductor’s Role');
+  assert.ok(md.render(lifted, { withTitle: true }).startsWith('<h1 id="the-conductors-role">The Conductor’s Role</h1>\n<h2'));
+  assert.ok(!md.render(lifted).includes('<h1'), 'body render has no title');
+  // Copy for Ghost no longer strips the first section heading.
+  assert.equal(md.forPublishing(lifted), '## Why Design Work\n\nBody.\n');
+  assert.equal(md.forPublishing(lifted, { includeTitle: true }), '# The Conductor’s Role\n\n## Why Design Work\n\nBody.\n');
+  assert.equal(md.setMeta('', 'title', 'Design: A Story'), '---\ntitle: "Design: A Story"\n---\n\n');
+  assert.equal(md.title('---\ntitle: "Design: A Story"\n---\n'), 'Design: A Story');
 });
