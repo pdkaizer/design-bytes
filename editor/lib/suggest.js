@@ -108,4 +108,56 @@ async function suggest({ selection, before = '', after = '', title = '' }) {
   return { suggestions, model: response.model };
 }
 
-module.exports = { suggest, SuggestError };
+const TAG_SCHEMA = {
+  type: 'object',
+  properties: {
+    tags: { type: 'array', items: { type: 'string' }, description: 'Subject tags for the link' },
+  },
+  required: ['tags'],
+  additionalProperties: false,
+};
+
+const TAG_SYSTEM = `You help a design writer organise a library of saved links by subject.
+
+Given one link (its title, address and description) and the tags already used in the library, suggest 2 to 5 tags describing what the link is about.
+- Reuse an existing tag whenever it fits, so the library's vocabulary stays consistent; only add a new tag for a subject the existing ones don't cover.
+- Tags are short, lowercase, and use dashes instead of spaces (for example "design-systems", "typography", "ai").
+- Describe the subject matter, not the format or the website (avoid tags like "article", "blog", or the site's name).`;
+
+// Suggests subject tags for a saved link, preferring tags already in use.
+async function suggestTags({ title = '', url = '', description = '', note = '', current = [], existing = [] }) {
+  const anthropic = getClient();
+  const lines = [`Title: ${title}`, `Address: ${url}`];
+  if (description) lines.push(`Description: ${description}`);
+  if (note) lines.push(`The writer's note: ${note}`);
+  if (current.length) lines.push(`Tags this link already has: ${current.join(', ')} — suggest only additional ones, not variations of these.`);
+  lines.push('', existing.length ? `Tags already in the library: ${existing.join(', ')}` : 'The library has no tags yet.');
+  const prompt = lines.join('\n');
+
+  let response;
+  try {
+    response = await anthropic.beta.messages.create({
+      model: MODEL,
+      max_tokens: 2000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: TAG_SCHEMA } },
+      system: TAG_SYSTEM,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) throw new SuggestError(503, 'Your Anthropic API key was rejected. Check ANTHROPIC_API_KEY in .env.');
+    if (err instanceof Anthropic.RateLimitError) throw new SuggestError(429, 'Rate limited by the Anthropic API — try again in a moment.');
+    if (err instanceof Anthropic.APIError) throw new SuggestError(502, `Anthropic API error ${err.status ?? ''}: ${err.message}`.trim());
+    throw new SuggestError(502, `Couldn’t reach the Anthropic API: ${err.message}`);
+  }
+  if (response.stop_reason === 'refusal') throw new SuggestError(422, 'Claude declined to suggest tags for this link.');
+  const block = response.content.find((b) => b.type === 'text');
+  try {
+    return { tags: JSON.parse(block?.text || '').tags || [] };
+  } catch {
+    throw new SuggestError(502, 'Got an unexpected response — try again.');
+  }
+}
+
+module.exports = { suggest, suggestTags, SuggestError };

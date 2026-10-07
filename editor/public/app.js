@@ -34,6 +34,7 @@
   const state = {
     articles: [],
     notes: [], // quick notes
+    thoughts: [], // posts for peterkaizer.com
     view: 'articles', // which list the sidebar shows
     doc: null, // { slug, saved, mtime }
     saveTimer: 0,
@@ -88,15 +89,18 @@
   // Two kinds of document: articles (articles/) and quick notes (quick-notes/).
   const KINDS = {
     articles: { folder: 'articles', label: 'Articles', search: 'Search articles', empty: 'No articles yet' },
+    thoughts: { folder: 'thoughts', label: 'Thoughts', search: 'Search thoughts', empty: 'No thoughts yet — New starts one for peterkaizer.com' },
     notes: { folder: 'quick-notes', label: 'Quick notes', search: 'Search quick notes', empty: 'No quick notes yet' },
   };
-  const listOf = (kind) => (kind === 'notes' ? state.notes : state.articles);
+  const listOf = (kind) => ({ notes: state.notes, thoughts: state.thoughts }[kind] || state.articles);
+  // How saved links refer to a document: "slug" for articles, "thoughts/slug" for thoughts.
+  const docKey = (doc = state.doc) => (doc?.kind === 'thoughts' ? `thoughts/${doc.slug}` : doc?.slug);
   const docUrl = (doc = state.doc) => `/api/${doc.kind}/${enc(doc.slug)}`;
   const hashFor = (kind, slug) => (kind === 'notes' ? `#note/${slug}` : `#${slug}`);
   const isOpen = (kind, slug) => state.doc?.kind === kind && state.doc?.slug === slug;
   function parseHash() {
     const h = decodeURIComponent(location.hash.slice(1));
-    if (!h) return null;
+    if (!h || h === 'links') return null;
     return h.startsWith('note/') ? { kind: 'notes', slug: h.slice(5) } : { kind: 'articles', slug: h };
   }
 
@@ -111,13 +115,21 @@
   }
 
   async function loadList() {
-    [state.articles, state.notes] = await Promise.all([api('GET', '/api/articles'), api('GET', '/api/notes')]);
+    [state.articles, state.thoughts, state.notes] = await Promise.all(['articles', 'thoughts', 'notes'].map((k) => api('GET', `/api/${k}`)));
     renderList();
   }
 
   function setView(view) {
     state.view = view;
     prefs.set('view', view);
+    body.dataset.view = view;
+    window.dispatchEvent(new CustomEvent('dbw:view', { detail: view }));
+    if (view === 'links') { // the links page (links.js) takes over
+      document.querySelectorAll('#view-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+      history.replaceState(null, '', '#links');
+      return;
+    }
+    if (state.doc && location.hash === '#links') history.replaceState(null, '', hashFor(state.doc.kind, state.doc.slug));
     el.search.placeholder = KINDS[view].search;
     el.search.setAttribute('aria-label', KINDS[view].search);
     $('#new').title = view === 'notes' ? 'New quick note' : 'New article';
@@ -132,8 +144,8 @@
   const STATUS_LABELS = { backlog: 'Backlog', editing: 'Editing', final: 'Final', published: 'Published' };
 
   function renderFilters() {
-    const current = prefs.get('filter', 'all');
-    const count = (s) => state.articles.filter((a) => s === 'all' || a.status === s).length;
+    const current = prefs.get(`filter-${state.view}`, 'all');
+    const count = (s) => listOf(state.view).filter((a) => s === 'all' || a.status === s).length;
     el.filters.replaceChildren(...['all', ...md.STATUSES].map((s) => {
       const b = document.createElement('button');
       b.dataset.filter = s;
@@ -152,7 +164,7 @@
   el.filters.addEventListener('click', (e) => {
     const filter = e.target.closest('[data-filter]')?.dataset.filter;
     if (!filter) return;
-    prefs.set('filter', filter);
+    prefs.set(`filter-${state.view}`, filter);
     renderList();
   });
 
@@ -161,12 +173,13 @@
     const notes = view === 'notes';
     document.querySelectorAll('#view-tabs button').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.view === view));
-      b.querySelector('.count').textContent = listOf(b.dataset.view).length;
+      if (b.dataset.view !== 'links') b.querySelector('.count').textContent = listOf(b.dataset.view).length;
     });
+    if (view === 'links') return;
     el.filters.hidden = notes;
     if (!notes) renderFilters();
     const q = el.search.value.trim().toLowerCase();
-    const filter = notes ? 'all' : prefs.get('filter', 'all');
+    const filter = notes ? 'all' : prefs.get(`filter-${view}`, 'all');
     const shown = listOf(view).filter((a) =>
       (filter === 'all' || a.status === filter) &&
       (!q || a.title.toLowerCase().includes(q) || a.slug.includes(q) || (a.excerpt || '').toLowerCase().includes(q)));
@@ -199,7 +212,8 @@
         badge.className = 'badge';
         badge.dataset.status = a.status;
         badge.textContent = STATUS_LABELS[a.status];
-        meta.append(badge, ` · ${a.words.toLocaleString()} words · ${added ? `Added ${added}` : ago(a.mtime)}`);
+        const middle = view === 'thoughts' ? (a.category || 'No category') : `${a.words.toLocaleString()} words`;
+        meta.append(badge, ` · ${middle} · ${added ? `Added ${added}` : ago(a.mtime)}`);
       }
       btn.append(title, meta);
       li.append(btn);
@@ -249,6 +263,9 @@
     refresh(true);
     renderList();
     updateCursor();
+    renderArtLinks();
+    loadArtLinks();
+    if (kind === 'thoughts') loadCategories().then(() => syncCategory(ed.value));
   }
 
   function closeDoc() {
@@ -363,7 +380,7 @@
     const run = () => {
       if (!state.doc) return;
       const text = ed.value;
-      if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text, { withTitle: state.doc.kind === 'articles' });
+      if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text, { withTitle: state.doc.kind !== 'notes' });
 
       const isNote = state.doc.kind === 'notes';
       const title = isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
@@ -388,9 +405,12 @@
         el.stage.dataset.status = status;
       }
       body.dataset.status = status || '';
+      if (!isNote && state.doc.kind === 'thoughts') syncCategory(text);
 
       const entry = listOf(state.doc.kind).find((a) => a.slug === state.doc.slug);
       const createdMs = added ? added.ms : null;
+      const category = state.doc.kind === 'thoughts' ? String(md.frontMatter(text).data.category || '').trim() : undefined;
+      if (entry && category !== undefined && entry.category !== category) { entry.category = category; renderList(); }
       if (entry && (entry.title !== title || entry.words !== s.words || entry.status !== status || entry.created !== createdMs)) {
         entry.title = title;
         entry.words = s.words;
@@ -710,7 +730,7 @@
     clearTimeout(slugTimer);
     slugTimer = setTimeout(() => {
       const doc = state.doc;
-      if (!doc || doc.kind !== 'articles' || state.renaming || state.conflict) return;
+      if (!doc || doc.kind === 'notes' || state.renaming || state.conflict) return;
       const fm = md.frontMatter(ed.value);
       const want = String(fm.data.slug || '').trim();
       if (!want || want === doc.slug || want === state.slugRefused) return;
@@ -1193,7 +1213,7 @@
       legend.textContent = '';
       const article = document.createElement('article');
       article.className = 'article';
-      article.innerHTML = md.render(hist.content, { withTitle: state.doc.kind === 'articles' });
+      article.innerHTML = md.render(hist.content, { withTitle: state.doc.kind !== 'notes' });
       view.replaceChildren(article);
       return;
     }
@@ -1475,7 +1495,7 @@
     }
     const what = kind === 'notes' ? 'quick note' : 'article';
     const parts = [];
-    if (done === 1) parts.push(`Imported “${el.title.textContent}”${kind === 'articles' ? ' into Backlog' : ''}`);
+    if (done === 1) parts.push(`Imported “${el.title.textContent}”${kind !== 'notes' ? ' into Backlog' : ''}`);
     else if (done) parts.push(`Imported ${done} ${what}s`);
     if (failed.length) parts.push(`couldn’t import ${failed.join(', ')}`);
     if (skipped) parts.push(`skipped ${skipped} file${skipped === 1 ? '' : 's'} that ${skipped === 1 ? 'isn’t' : 'aren’t'} Markdown`);
@@ -1588,6 +1608,262 @@
   });
 
   // ---------------------------------------------------------------------------
+  // The open article's links — saved links marked "for" this article (links.js
+  // manages the library itself). Shown at the top of the notes side panel.
+
+  const artLinks = { all: [] };
+  const linksChanged = () => window.dispatchEvent(new CustomEvent('dbw:links-changed', { detail: 'article' }));
+  const isUrl = (s) => /^(https?:\/\/|www\.)\S+$/i.test(s.trim()) || /^[\w-]+(\.[\w-]+)+\/\S*$/.test(s.trim());
+
+  async function loadArtLinks() {
+    try { artLinks.all = await api('GET', '/api/links'); } catch { /* links are optional */ }
+    renderArtLinks();
+  }
+
+  const linksForDoc = () => (state.doc && state.doc.kind !== 'notes'
+    ? artLinks.all.filter((l) => (l.articles || []).includes(docKey()))
+    : []);
+
+  function renderArtLinks() {
+    const mine = linksForDoc();
+    $('#art-links-count').textContent = mine.length ? `· ${mine.length}` : '';
+    const btn = $('#links-btn');
+    btn.hidden = !mine.length;
+    btn.querySelector('span').textContent = `${mine.length} link${mine.length === 1 ? '' : 's'}`;
+    const list = $('#art-links-list');
+    if (!mine.length) {
+      const p = document.createElement('p');
+      p.className = 'art-links-empty';
+      const piece = state.doc?.kind === 'thoughts' ? 'thought' : 'article';
+      p.textContent = `Links you save for this ${piece} appear here, ready to insert. Paste one above, or mark a saved link “for” it on the Links page.`;
+      list.replaceChildren(p);
+      return;
+    }
+    list.replaceChildren(...mine.map((l) => {
+      const li = document.createElement('li');
+      li.className = 'art-link';
+      const a = document.createElement('a');
+      a.href = l.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = l.title || l.url;
+      a.title = l.url;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = [l.site, ...(l.tags || []).map((t) => `#${t}`)].filter(Boolean).join(' · ');
+      const acts = document.createElement('div');
+      acts.className = 'acts';
+      const insert = document.createElement('button');
+      insert.className = 'btn';
+      insert.textContent = 'Insert';
+      insert.title = 'Insert as a Markdown link at the cursor (selected text becomes the link text)';
+      insert.addEventListener('mousedown', (e) => e.preventDefault()); // keep the editor's selection
+      insert.addEventListener('click', () => insertLink(l));
+      const remove = document.createElement('button');
+      remove.className = 'cut-delete';
+      remove.textContent = 'Remove';
+      remove.title = 'Remove from this article (it stays in your saved links)';
+      remove.addEventListener('click', () => setLinkArticle(l, false));
+      acts.append(insert, remove);
+      li.append(a, meta, acts);
+      return li;
+    }));
+  }
+
+  function insertLink(l) {
+    const { selectionStart: s, selectionEnd: e, value: v } = ed;
+    const sel = v.slice(s, e);
+    const text = sel && !sel.includes('\n') ? sel : (l.title || l.url);
+    replaceRange(s, e, `[${text.replace(/[[\]]/g, '\\$&')}](${l.url})`);
+    toast('Link inserted');
+  }
+
+  async function setLinkArticle(l, attach) {
+    const slug = docKey();
+    if (!slug) return;
+    const list = new Set(l.articles || []);
+    if (attach) list.add(slug); else list.delete(slug);
+    try {
+      const updated = await api('PATCH', `/api/links/${l.id}`, { articles: [...list] });
+      Object.assign(l, updated);
+      if (!artLinks.all.some((x) => x.id === l.id)) artLinks.all.unshift(l);
+      renderArtLinks();
+      linksChanged();
+      if (!attach) toast(`Removed from this ${state.doc.kind === 'thoughts' ? 'thought' : 'article'} — it’s still in your saved links`);
+    } catch (err) {
+      toast(`Couldn’t update the link: ${err.message}`);
+    }
+  }
+
+  async function attachUrl(raw) {
+    let link;
+    try {
+      link = await api('POST', '/api/links', { url: raw });
+      toast(`Saved “${link.title}” for this article`);
+    } catch (err) {
+      if (err.status === 409 && err.data?.link) link = err.data.link; // already saved: just attach it
+      else { toast(`Couldn’t save the link: ${err.message}`); return; }
+    }
+    await setLinkArticle(link, true);
+  }
+
+  // The "paste a link or search" box.
+  const artInput = $('#art-link-input');
+  const artMenu = $('#art-link-menu');
+  let artPick = 0;
+  function artOptions() {
+    const q = artInput.value.trim();
+    if (!q) return [];
+    if (isUrl(q)) return [{ url: q }];
+    const mine = new Set(linksForDoc().map((l) => l.id));
+    const words = q.toLowerCase().split(/\s+/);
+    return artLinks.all
+      .filter((l) => !mine.has(l.id) && words.every((w) => [l.title, l.site, l.url, ...(l.tags || [])].join(' ').toLowerCase().includes(w)))
+      .slice(0, 8);
+  }
+  function drawArtMenu() {
+    const options = artOptions();
+    artPick = Math.min(artPick, Math.max(0, options.length - 1));
+    artMenu.hidden = !artInput.value.trim();
+    if (artMenu.hidden) return options;
+    const rows = options.map((o, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      if (i === artPick) b.className = 'on';
+      const title = document.createElement('span');
+      const sub = document.createElement('small');
+      if (o.id) { title.textContent = o.title || o.url; sub.textContent = [o.site, ...(o.tags || []).map((t) => `#${t}`)].filter(Boolean).join(' · '); }
+      else { title.textContent = 'Save and add this link'; sub.textContent = o.url; }
+      b.append(title, sub);
+      b.addEventListener('mousedown', (e) => { e.preventDefault(); chooseArt(o); });
+      return b;
+    });
+    if (!rows.length) {
+      const none = document.createElement('button');
+      none.type = 'button';
+      none.disabled = true;
+      none.textContent = 'No saved links match — paste a web address to save a new one';
+      rows.push(none);
+    }
+    artMenu.replaceChildren(...rows);
+    return options;
+  }
+  async function chooseArt(o) {
+    artInput.value = '';
+    artMenu.hidden = true;
+    if (o.id) await setLinkArticle(o, true);
+    else await attachUrl(o.url);
+  }
+  artInput.addEventListener('input', () => { artPick = 0; drawArtMenu(); });
+  artInput.addEventListener('focus', () => { if (!artLinks.all.length) loadArtLinks(); });
+  artInput.addEventListener('blur', () => { artMenu.hidden = true; });
+  artInput.addEventListener('keydown', (e) => {
+    const options = drawArtMenu();
+    if (e.key === 'ArrowDown' && options.length) { e.preventDefault(); artPick = (artPick + 1) % options.length; drawArtMenu(); }
+    else if (e.key === 'ArrowUp' && options.length) { e.preventDefault(); artPick = (artPick - 1 + options.length) % options.length; drawArtMenu(); }
+    else if (e.key === 'Enter' && options[artPick]) { e.preventDefault(); chooseArt(options[artPick]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); artInput.value = ''; artMenu.hidden = true; }
+  });
+
+  $('#links-btn').addEventListener('click', () => {
+    toggleNotes(true);
+    $('#art-links').scrollIntoView({ block: 'start' });
+  });
+  window.addEventListener('dbw:links-changed', (e) => { if (e.detail !== 'article') loadArtLinks(); });
+  window.addEventListener('focus', () => { if (state.doc && state.doc.kind !== 'notes') loadArtLinks(); });
+
+  // ---------------------------------------------------------------------------
+  // Thoughts: category picker and publishing to peterkaizer.com
+
+  const catSelect = $('#category-select');
+  let siteCategories = null;
+  async function loadCategories() {
+    if (siteCategories) return siteCategories;
+    try { siteCategories = await api('GET', '/api/site/categories'); } catch { siteCategories = []; }
+    return siteCategories;
+  }
+  function syncCategory(text) {
+    if (state.doc?.kind !== 'thoughts') return;
+    const current = String(md.frontMatter(text).data.category || '').trim();
+    const options = [...new Set([...(siteCategories || []), ...(current ? [current] : [])])];
+    const signature = `${current}|${options.join(',')}`;
+    if (catSelect.dataset.signature !== signature) {
+      catSelect.dataset.signature = signature;
+      const opt = (value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; return o; };
+      catSelect.replaceChildren(opt('', 'No category'), ...options.map((c) => opt(c, c)), opt('__new', 'New category…'));
+    }
+    catSelect.value = current;
+    $('#category').classList.toggle('unset', !current);
+  }
+  catSelect.addEventListener('change', async () => {
+    let value = catSelect.value;
+    if (value === '__new') {
+      value = await ask({ title: 'New category', label: 'Category', placeholder: 'e.g. Process', confirm: 'Use it',
+        hint: 'Categories without an accent colour in the site’s CSS use its muted colour.' });
+      if (!value) { syncCategory(ed.value); return; }
+      siteCategories = [...(siteCategories || []), value];
+    }
+    setMetaInEditor('category', value, { after: 'slug' });
+    syncCategory(ed.value);
+  });
+
+  async function publishThought() {
+    const doc = state.doc;
+    if (!doc || doc.kind !== 'thoughts') return;
+    const data = md.frontMatter(ed.value).data;
+    const title = String(data.title || '').trim();
+    if (!title) { toast('Give it a title: before publishing'); return; }
+    const missing = ['description', 'category'].filter((k) => !String(data[k] || '').trim());
+    const again = md.status(ed.value) === 'published';
+    const ok = await ask({
+      title: again ? 'Update on peterkaizer.com?' : 'Publish to peterkaizer.com?',
+      text: `“${title}” will be written to src/thoughts/${doc.slug}.md in your site, then committed and pushed so it goes live.` +
+        (missing.length ? ` Heads up: it has no ${missing.join(' or ')} yet — the site shows ${missing.length > 1 ? 'both' : 'it'} on the Thoughts page.` : ''),
+      confirm: again ? 'Update' : 'Publish',
+    });
+    if (!ok) return;
+    await save();
+    const btn = $('#publish-btn');
+    btn.disabled = true;
+    btn.querySelector('span').textContent = 'Publishing…';
+    try {
+      let r;
+      try {
+        r = await api('POST', `${docUrl(doc)}/publish`, {});
+      } catch (err) {
+        if (err.status !== 409 || !err.data?.needsConfirm) throw err;
+        const replace = await ask({
+          title: 'Replace the post on the site?',
+          text: `peterkaizer.com already has a different thoughts/${doc.slug}.md that wasn’t published from DB Writer. Publishing replaces it with this version (the old one stays in the site’s git history).`,
+          confirm: 'Replace it', danger: true,
+        });
+        if (!replace) return;
+        r = await api('POST', `${docUrl(doc)}/publish`, { overwrite: true });
+      }
+      if (state.doc === doc && r.content !== doc.saved) {
+        // The draft is now marked published (and may have gained a date:).
+        const { selectionStart, selectionEnd, scrollTop } = ed;
+        setFileText(r.content);
+        doc.saved = r.content;
+        ed.setSelectionRange(selectionStart, selectionEnd);
+        ed.scrollTop = scrollTop;
+      }
+      if (state.doc === doc) doc.mtime = r.mtime;
+      refresh(true);
+      await loadList();
+      if (r.note) toast(r.note);
+      else if (r.pushed) toast(`Published “${title}” — committed and pushed. It’ll be live once the site redeploys.`);
+      else toast(`“${title}” is already up to date on peterkaizer.com.`);
+    } catch (err) {
+      toast(`Couldn’t publish: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.querySelector('span').textContent = 'Publish to peterkaizer.com';
+    }
+  }
+  $('#publish-btn').addEventListener('click', publishThought);
+
+  // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
 
   function stamp() {
@@ -1689,20 +1965,22 @@
       }
       return;
     }
+    const kind = state.view === 'thoughts' ? 'thoughts' : 'articles';
+    const one = kind === 'thoughts' ? 'thought' : 'article';
     const title = await ask({
-      title: 'New article', label: 'Title', placeholder: 'What are you writing about?', confirm: 'Create',
-      hint: 'You can change the title any time — it’s the first heading.',
+      title: `New ${one}`, label: 'Title', placeholder: kind === 'thoughts' ? 'A concept, a principle, an observation…' : 'What are you writing about?', confirm: 'Create',
+      hint: 'You can change it any time — it’s the title: line at the top.',
     });
     if (!title) return;
     await save();
     try {
-      const a = await api('POST', '/api/articles', { title });
+      const a = await api('POST', `/api/${kind}`, { title });
       await loadList();
-      load(a, 'articles');
+      load(a, kind);
       ed.focus();
       ed.setSelectionRange(ed.value.length, ed.value.length);
     } catch (err) {
-      toast(`Couldn’t create article: ${err.message}`);
+      toast(`Couldn’t create the ${one}: ${err.message}`);
     }
   }
 
@@ -1733,12 +2011,13 @@
       doc.mtime = a.mtime;
       doc.saved = a.content;
       // The server keeps slug: in step with the file name; match it in the editor.
-      if (doc.kind === 'articles') setMetaInEditor('slug', a.slug, { after: 'title' });
+      if (doc.kind !== 'notes') setMetaInEditor('slug', a.slug, { after: 'title' });
       prefs.set('last', { kind: doc.kind, slug: a.slug });
       history.replaceState(null, '', hashFor(doc.kind, a.slug));
       await loadList();
       refresh(true);
       if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
+      if (renamed && doc.kind !== 'notes') loadArtLinks(); // its links followed it
     } catch (err) {
       if (err.status === 409) {
         state.slugRefused = to;
@@ -1804,7 +2083,7 @@
   }
 
   async function copyHtml() {
-    toast(await copyText(md.render(ed.value, { withTitle: state.doc.kind === 'articles' })) ? 'Article HTML copied' : 'Clipboard not available');
+    toast(await copyText(md.render(ed.value, { withTitle: state.doc.kind !== 'notes' })) ? 'Article HTML copied' : 'Clipboard not available');
   }
 
   let copiedTimer = 0;
@@ -1908,7 +2187,7 @@
     el.toast.textContent = message;
     el.toast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.toast.classList.remove('show'), 2600);
+    toastTimer = setTimeout(() => el.toast.classList.remove('show'), Math.min(9000, 2600 + message.length * 30));
   }
 
   document.addEventListener('keydown', (e) => {
@@ -1969,7 +2248,10 @@
     if (prefs.get('sidebar', true) === false) body.classList.add('no-sidebar');
     if (prefs.get('notes', false)) { body.classList.add('notes-open'); $('#notes').inert = false; $('#notes-btn').setAttribute('aria-pressed', 'true'); }
 
-    state.view = prefs.get('view', 'articles') === 'notes' ? 'notes' : 'articles';
+    const savedView = prefs.get('view', 'articles');
+    const askedFor = parseHash(); // a link straight to an article or note opens it instead
+    const startedOnLinks = location.hash === '#links';
+    state.view = savedView === 'notes' ? 'notes' : 'articles';
     await loadList();
     setView(state.view);
     let last = prefs.get('last', null);
@@ -1980,7 +2262,23 @@
     if (found) await openDoc(wanted.kind, found.slug);
     else if (first) await openDoc(listOf(state.view)[0] ? state.view : 'articles', first.slug);
     else closeDoc();
+    if (startedOnLinks || (savedView === 'links' && !askedFor)) setView('links'); // reopen where you left off
   }
+
+  // A few helpers for links.js, which runs the Links page.
+  window.dbw = {
+    api, toast, prefs, ask, copyText, setView,
+    // Articles and thoughts, keyed the way saved links refer to them.
+    articles: () => [
+      ...state.articles.map((a) => ({ ...a, kind: 'articles' })),
+      ...state.thoughts.map((t) => ({ ...t, slug: `thoughts/${t.slug}`, kind: 'thoughts' })),
+    ],
+    openArticle: (key) => {
+      const kind = key.startsWith('thoughts/') ? 'thoughts' : 'articles';
+      setView(kind);
+      openDoc(kind, key.replace(/^thoughts\//, ''));
+    },
+  };
 
   init().catch((err) => toast(`Couldn’t reach the writer server: ${err.message}`));
 })();

@@ -83,6 +83,16 @@
 
   // Returns { data, body, end, lines }: `end` is the character offset where the
   // body starts and `lines` how many lines the front matter occupies.
+  // A YAML scalar: "double quoted" (with \" escapes), 'single quoted' ('' for '), or plain.
+  function yamlValue(raw) {
+    const v = raw.trim();
+    if (/^".*"$/.test(v)) {
+      try { return JSON.parse(v); } catch { return v.slice(1, -1).replace(/\\(["\\])/g, '$1'); }
+    }
+    if (/^'.*'$/.test(v)) return v.slice(1, -1).replace(/''/g, "'");
+    return v;
+  }
+
   function frontMatter(src) {
     const text = String(src == null ? '' : src);
     const m = text.match(FRONT);
@@ -97,7 +107,7 @@
     const data = {};
     for (const line of inner) {
       const kv = line.match(META_LINE);
-      if (kv) data[kv[1]] = kv[2].replace(/^(["'])(.*)\1$/, '$2');
+      if (kv) data[kv[1]] = yamlValue(kv[2]);
     }
     return { data, body: text.slice(m[0].length), end: m[0].length, lines: (m[0].match(/\n/g) || []).length };
   }
@@ -109,7 +119,7 @@
     const text = String(src == null ? '' : src);
     const fm = frontMatter(text);
     let v = String(value);
-    if (/: |\s#|^[\s'"&*!|>%@`{[\]-]|\s$/.test(v) && !v.includes('"')) v = `"${v}"`; // keep it valid YAML
+    if (/: |\s#|^[\s'"&*!|>%@`{[\]-]|\s$|"/.test(v)) v = `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`; // keep it valid YAML
     const line = `${key}: ${v}`;
     if (!fm.end) return `---\n${line}\n---\n\n${text.replace(/^\s*\n/, '')}`;
     const inner = text.match(FRONT)[1].split(/\r?\n/);

@@ -1,7 +1,7 @@
 'use strict';
 
-// File-system access. Documents live in collections — articles in /articles and
-// quick notes in /quick-notes — as <slug>.md, each with its own .trash and
+// File-system access. Documents live in collections — articles in /articles,
+// thoughts (peterkaizer.com posts) in /thoughts and quick notes in /quick-notes — as <slug>.md, each with its own .trash and
 // .history. Images live in /images and are referenced as ../images/<name>.
 
 const fs = require('fs');
@@ -12,6 +12,7 @@ const md = require('./markdown');
 const ROOT = path.resolve(__dirname, '..', '..');
 const ARTICLES = path.join(ROOT, 'articles');
 const NOTES = path.join(ROOT, 'quick-notes');
+const THOUGHTS = path.join(ROOT, 'thoughts'); // drafts of posts for peterkaizer.com
 const IMAGES = path.join(ROOT, 'images');
 const TRASH = path.join(ARTICLES, '.trash');
 
@@ -44,7 +45,7 @@ async function writeAtomic(file, data) {
 
 // A folder of Markdown documents.
 function collection(kind) {
-  const dir = { articles: ARTICLES, notes: NOTES }[kind];
+  const dir = { articles: ARTICLES, thoughts: THOUGHTS, notes: NOTES }[kind];
   if (!dir) return null;
   const file = (slug) => path.join(dir, `${slug}.md`);
   const isNote = kind === 'notes';
@@ -62,9 +63,11 @@ function collection(kind) {
       const { words, minutes } = md.stats(content);
       const title = (isNote ? md.displayTitle(content) : md.title(content)) || (isNote ? 'Untitled note' : slug);
       const added = md.created(content); // { ms, hasTime } from created: in the front matter
-      return isNote
-        ? { slug, title, excerpt: md.excerpt(content, 140), words, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime }
-        : { slug, title, status: md.status(content), excerpt: md.excerpt(content), words, minutes, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime };
+      const base = { slug, title, words, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime };
+      if (isNote) return { ...base, excerpt: md.excerpt(content, 140) };
+      const doc = { ...base, status: md.status(content), excerpt: md.excerpt(content), minutes };
+      if (kind === 'thoughts') doc.category = String(md.frontMatter(content).data.category || '').trim();
+      return doc;
     }));
     return docs.sort((a, b) => b.mtime - a.mtime);
   }
@@ -106,7 +109,7 @@ async function uniqueImageName(name) {
 }
 
 module.exports = {
-  ROOT, ARTICLES, NOTES, IMAGES, TRASH, IMAGE_EXT,
+  ROOT, ARTICLES, THOUGHTS, NOTES, IMAGES, TRASH, IMAGE_EXT,
   isSlug, articlePath, exists, slugify, writeAtomic, collection,
   readArticle, listArticles, listImages, uniqueImageName,
 };

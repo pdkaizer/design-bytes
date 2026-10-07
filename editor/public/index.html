@@ -17,7 +17,9 @@
     </header>
     <div class="seg view-tabs" id="view-tabs" role="group" aria-label="Show">
       <button data-view="articles" aria-pressed="true">Articles <span class="count"></span></button>
-      <button data-view="notes" aria-pressed="false">Quick notes <span class="count"></span></button>
+      <button data-view="thoughts" aria-pressed="false">Thoughts <span class="count"></span></button>
+      <button data-view="notes" aria-pressed="false">Notes <span class="count"></span></button>
+      <button data-view="links" aria-pressed="false">Links <span class="count"></span></button>
     </div>
     <div class="sidebar-actions">
       <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
@@ -26,6 +28,7 @@
     </div>
     <div class="filters" id="filters" role="group" aria-label="Filter by status"></div>
     <nav><ul id="list"></ul></nav>
+    <nav class="links-side" id="links-side" aria-label="Tags"></nav>
   </aside>
   <div class="scrim" id="scrim"></div>
 
@@ -42,7 +45,14 @@
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6.5" y="6.5" width="10" height="11" rx="2"/><path d="M13.5 6.5V4.5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1"/></svg>
         <span>Copy for Ghost</span>
       </button>
-      <label class="stage" id="stage" title="Article status">
+      <label class="stage category-pick" id="category" title="Category on peterkaizer.com">
+        <span class="visually-hidden">Category</span>
+        <select id="category-select"></select>
+      </label>
+      <button class="btn primary publish-btn" id="publish-btn" title="Write this thought to your 11ty site, then commit and push so it goes live">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7"/><path d="M3.5 12.5v2a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-2"/></svg><span>Publish to peterkaizer.com</span>
+      </button>
+      <label class="stage" id="stage" title="Status">
         <span class="visually-hidden">Status</span>
         <select id="stage-select">
           <option value="backlog">Backlog</option>
@@ -151,6 +161,14 @@
       </header>
       <p class="notes-hint">Saved with the article · never shown or published. Hover a card to see where it goes back.</p>
       <div class="notes-body">
+        <section class="art-links" id="art-links" aria-label="Links for this article">
+          <div class="art-links-head"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5L10 5"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></svg><strong>Links</strong><span id="art-links-count"></span></div>
+          <div class="art-links-add">
+            <input id="art-link-input" autocomplete="off" spellcheck="false" placeholder="Paste a link, or search your saved links" aria-label="Add a link to this article">
+            <div class="tag-menu" id="art-link-menu" hidden></div>
+          </div>
+          <ul class="art-links-list" id="art-links-list"></ul>
+        </section>
         <div class="cuts" id="cuts" hidden aria-label="Text moved out of the article"></div>
         <textarea id="notes-editor" spellcheck="true" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" aria-label="Notes"
           placeholder="Ideas, sources, reminders…"></textarea>
@@ -186,11 +204,26 @@
     </section>
     </div>
 
+    <section class="links-page" id="links-page" aria-label="Links">
+      <header class="links-head">
+        <form class="link-add" id="link-add">
+          <input id="link-url" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+            placeholder="Paste a link to save it — or press ⌘V anywhere on this page" aria-label="Link to save">
+          <button class="btn primary" id="link-save">Save link</button>
+        </form>
+        <input id="link-search" type="search" placeholder="Search links" aria-label="Search links">
+      </header>
+      <div class="links-filter" id="links-filter" hidden></div>
+      <div class="links-undo" id="links-undo" hidden><span></span><button class="btn">Undo</button></div>
+      <ul class="links-list" id="links-list"></ul>
+    </section>
+
     <footer class="statusbar">
       <span id="stats"></span>
       <button id="issues-btn" class="issues-btn" hidden></button>
       <button id="read-btn" class="notes-btn" title="Readability" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 14.5a7 7 0 1 1 14 0"/><path d="m10 14.5 3.2-4.6"/></svg><span>Readability</span></button>
       <button id="history-btn" class="notes-btn" title="Version history"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10a6.5 6.5 0 1 0 1.9-4.6"/><path d="M3 3.5v3h3"/><path d="M10 6.5V10l2.5 1.5"/></svg><span>History</span></button>
+      <button id="links-btn" class="notes-btn" title="Links for this article" hidden><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5L10 5"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></svg><span></span></button>
       <button id="notes-btn" class="notes-btn" title="Show notes (⌥⌘N)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4.5 3h8l3 3v10.5a.5.5 0 0 1-.5.5H4.5a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5Z"/><path d="M7 9h6M7 12h6M7 6h3" stroke-linecap="round"/></svg><span>Notes</span></button>
       <span class="grow"></span>
       <span id="read-hint" class="read-hint"></span>
@@ -260,5 +293,6 @@
 
 <script src="/lib/markdown.js"></script>
 <script src="/app.js"></script>
+<script src="/links.js"></script>
 </body>
 </html>

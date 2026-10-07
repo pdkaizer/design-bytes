@@ -13,7 +13,9 @@ const { execFile } = require('child_process');
 const md = require('./lib/markdown');
 const store = require('./lib/store');
 const { renderArticle } = require('./lib/template');
-const { suggest } = require('./lib/suggest');
+const { suggest, suggestTags } = require('./lib/suggest');
+const links = require('./lib/links');
+const publisher = require('./lib/publish');
 const history = require('./lib/history');
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -120,6 +122,11 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
         slugged = await coll.uniqueSlug(store.slugify(clean || 'Untitled'));
         content = md.setMeta('', 'title', clean || 'Untitled');
         content = md.setMeta(content, 'slug', slugged);
+        if (coll.kind === 'thoughts') {
+          // The fields peterkaizer.com uses, ready to fill in.
+          content = md.setMeta(content, 'category', '');
+          content = md.setMeta(content, 'description', '');
+        }
         content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
       }
       // Record when it was added (an imported file keeps a created: date it already has).
@@ -166,6 +173,8 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
       await fsp.access(file);
       await fsp.rename(file, coll.file(next));
       await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
+      const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
+      if (!isNote) await links.renameArticle(key(slug), key(next)).catch((err) => console.error('links:', err));
     }
     if (!isNote) {
       // Keep the slug: line in step with the file name.
@@ -195,6 +204,26 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
     throw httpError(405, 'Method not allowed');
   }
 
+  if (action === 'publish' && method === 'POST' && coll.kind === 'thoughts') {
+    const { overwrite } = await readJson(req);
+    const stat = await fsp.stat(file);
+    const { content } = await coll.read(slug);
+    let result;
+    try {
+      result = await publisher.publish(slug, content, { overwrite: !!overwrite });
+    } catch (err) {
+      if (err.status === 409) return json(res, 409, { error: err.message, needsConfirm: true });
+      throw err;
+    }
+    // The draft now says published (and has a date) — keep the old text in history.
+    if (result.draft !== content) {
+      await history.beforeWrite(coll, slug, file, stat).catch((err) => console.error('history:', err));
+      await store.writeAtomic(file, result.draft);
+    }
+    const saved = await coll.read(slug);
+    return json(res, 200, { ...result, draft: undefined, content: saved.content, mtime: saved.mtime });
+  }
+
   if (action === 'export' && method === 'GET') {
     const { content, mtime } = await coll.read(slug);
     const html = await inlineImages(renderArticle(content, { mtime }));
@@ -219,6 +248,35 @@ async function inlineImages(html) {
     html = html.split(`src="../images/${name}"`).join(`src="data:${type};base64,${data.toString('base64')}"`);
   }
   return html.replace(/<a href="\.\.\/index\.html">/, '<a href="#">');
+}
+
+// /api/links — saved links with tags.
+async function linksApi(req, res, id, action) {
+  const method = req.method;
+  if (!id) {
+    if (method === 'GET') return json(res, 200, await links.list());
+    if (method === 'POST') {
+      try {
+        return json(res, 201, await links.add((await readJson(req)).url));
+      } catch (err) {
+        if (err.status === 409) return json(res, 409, { error: err.message, link: err.link });
+        throw err;
+      }
+    }
+    throw httpError(405, 'Method not allowed');
+  }
+  if (id === 'restore' && method === 'POST') return json(res, 200, await links.restore((await readJson(req)).link));
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw httpError(400, 'Invalid link');
+  if (!action && method === 'PATCH') return json(res, 200, await links.update(id, await readJson(req)));
+  if (!action && method === 'DELETE') return json(res, 200, await links.remove(id));
+  if (action === 'suggest-tags' && method === 'POST') {
+    const link = await links.get(id);
+    const current = links.cleanTags((await readJson(req)).current || link.tags); // tags in the editor, maybe unsaved
+    const existing = [...new Set([...(await links.list()).flatMap((l) => l.tags), ...current])].sort();
+    const { tags } = await suggestTags({ ...link, current, existing });
+    return json(res, 200, { tags: links.cleanTags(tags).filter((t) => !current.includes(t)) });
+  }
+  throw httpError(404, 'Not found');
 }
 
 async function imagesApi(req, res, url) {
@@ -269,6 +327,8 @@ const server = http.createServer(async (req, res) => {
     const parts = pathname.split('/').filter(Boolean);
 
     if (parts[0] === 'api') {
+      if (parts[1] === 'links' && parts.length <= 4) return await linksApi(req, res, parts[2], parts[3]);
+      if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
       const coll = store.collection(parts[1]);
       if (coll && parts.length <= 5) return await documentsApi(req, res, coll, parts[2], parts[3], parts[4]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
@@ -298,7 +358,9 @@ server.listen(PORT, HOST, () => {
   const address = `http://localhost:${PORT}`;
   console.log(`\n  DB Writer  →  ${address}\n`);
   console.log(`  articles:    ${path.relative(process.cwd(), store.ARTICLES) || '.'}/`);
+  console.log(`  thoughts:    ${path.relative(process.cwd(), store.THOUGHTS) || '.'}/  →  publishes to ${process.env.THOUGHTS_SITE || '(set THOUGHTS_SITE in .env)'}`);
   console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
+  console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
   console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
   if (process.argv.includes('--open')) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
