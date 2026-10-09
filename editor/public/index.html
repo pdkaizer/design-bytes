@@ -20,6 +20,7 @@
       <button data-view="thoughts" aria-pressed="false">Thoughts <span class="count"></span></button>
       <button data-view="notes" aria-pressed="false">Notes <span class="count"></span></button>
       <button data-view="links" aria-pressed="false">Links <span class="count"></span></button>
+      <button data-view="quotes" aria-pressed="false">Quotes <span class="count"></span></button>
     </div>
     <div class="sidebar-actions">
       <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
@@ -29,6 +30,7 @@
     <div class="filters" id="filters" role="group" aria-label="Filter by status"></div>
     <nav><ul id="list"></ul></nav>
     <nav class="links-side" id="links-side" aria-label="Tags"></nav>
+    <nav class="links-side quotes-side" id="quotes-side" aria-label="People"></nav>
   </aside>
   <div class="scrim" id="scrim"></div>
 
@@ -169,6 +171,14 @@
           </div>
           <ul class="art-links-list" id="art-links-list"></ul>
         </section>
+        <section class="art-links art-quotes" id="art-quotes" aria-label="Quotes for this piece">
+          <div class="art-links-head"><svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 11.5C4 8 5.8 5.6 8.5 5l.5 1.2C7.3 7 6.6 8.3 6.6 9.6H9V15H4v-3.5Zm7 0C11 8 12.8 5.6 15.5 5l.5 1.2c-1.7.8-2.4 2.1-2.4 3.4H16V15h-5v-3.5Z"/></svg><strong>Quotes</strong><span id="art-quotes-count"></span></div>
+          <div class="art-links-add">
+            <input id="art-quote-input" autocomplete="off" spellcheck="false" placeholder="Search saved quotes, or type a new one" aria-label="Add a quote to this piece">
+            <div class="tag-menu" id="art-quote-menu" hidden></div>
+          </div>
+          <ul class="art-links-list" id="art-quotes-list"></ul>
+        </section>
         <div class="cuts" id="cuts" hidden aria-label="Text moved out of the article"></div>
         <textarea id="notes-editor" spellcheck="true" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" aria-label="Notes"
           placeholder="Ideas, sources, reminders…"></textarea>
@@ -218,11 +228,33 @@
       <ul class="links-list" id="links-list"></ul>
     </section>
 
+    <section class="links-page quotes-page" id="quotes-page" aria-label="Quotes">
+      <header class="quote-add-wrap">
+        <form class="quote-form" id="quote-add">
+          <textarea id="quote-text" rows="2" placeholder="Type or paste a quote…" aria-label="Quote"></textarea>
+          <div class="quote-form-row">
+            <input id="quote-author" autocomplete="off" placeholder="Who said it" aria-label="Who said it">
+            <input id="quote-source" autocomplete="off" placeholder="Source — book, talk or link (optional)" aria-label="Source">
+          </div>
+          <div class="quote-form-row">
+            <div class="article-pick" id="quote-add-for"></div>
+            <span class="grow"></span>
+            <button class="btn primary" id="quote-save">Save quote</button>
+          </div>
+        </form>
+        <input id="quote-search" type="search" placeholder="Search quotes" aria-label="Search quotes">
+      </header>
+      <div class="links-filter" id="quotes-filter" hidden></div>
+      <div class="links-undo" id="quotes-undo" hidden><span></span><button class="btn">Undo</button></div>
+      <ul class="links-list quotes-list" id="quotes-list"></ul>
+    </section>
+
     <footer class="statusbar">
       <span id="stats"></span>
       <button id="issues-btn" class="issues-btn" hidden></button>
       <button id="read-btn" class="notes-btn" title="Readability" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 14.5a7 7 0 1 1 14 0"/><path d="m10 14.5 3.2-4.6"/></svg><span>Readability</span></button>
       <button id="history-btn" class="notes-btn" title="Version history"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10a6.5 6.5 0 1 0 1.9-4.6"/><path d="M3 3.5v3h3"/><path d="M10 6.5V10l2.5 1.5"/></svg><span>History</span></button>
+      <button id="quotes-btn" class="notes-btn" title="Quotes for this piece" hidden><svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 11.5C4 8 5.8 5.6 8.5 5l.5 1.2C7.3 7 6.6 8.3 6.6 9.6H9V15H4v-3.5Zm7 0C11 8 12.8 5.6 15.5 5l.5 1.2c-1.7.8-2.4 2.1-2.4 3.4H16V15h-5v-3.5Z"/></svg><span></span></button>
       <button id="links-btn" class="notes-btn" title="Links for this article" hidden><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5L10 5"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></svg><span></span></button>
       <button id="notes-btn" class="notes-btn" title="Show notes (⌥⌘N)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4.5 3h8l3 3v10.5a.5.5 0 0 1-.5.5H4.5a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5Z"/><path d="M7 9h6M7 12h6M7 6h3" stroke-linecap="round"/></svg><span>Notes</span></button>
       <span class="grow"></span>
@@ -294,5 +326,6 @@
 <script src="/lib/markdown.js"></script>
 <script src="/app.js"></script>
 <script src="/links.js"></script>
+<script src="/quotes.js"></script>
 </body>
 </html>

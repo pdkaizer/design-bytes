@@ -918,6 +918,19 @@
     return { grade, sentences: list.length, words: totalWords, issues };
   }
 
+  // A saved quote as a Markdown blockquote with its attribution:
+  //   > The words.
+  //   >
+  //   > — Author, *Source*      (or — [Author](https://…) when the source is a link)
+  function quoteMarkdown({ text = '', author = '', source = '' } = {}) {
+    const body = String(text).trim().split(/\n\s*\n|\n/).map((line) => `> ${line.trim()}`).join('\n>\n');
+    const isUrl = /^https?:\/\/\S+$/i.test(String(source).trim());
+    const who = author ? (isUrl ? `[${author}](${source.trim()})` : author) : (isUrl ? `[Source](${source.trim()})` : '');
+    const where = source && !isUrl ? `*${String(source).trim()}*` : '';
+    const cite = [who, where].filter(Boolean).join(', ');
+    return cite ? `${body}\n>\n> — ${cite}` : body;
+  }
+
   // Lightweight writing checks. Each issue: { line, column, length, message }.
   function lint(src) {
     const issues = [];
@@ -963,6 +976,6 @@
 
   return {
     render, inline, title, displayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, liftTitle, status, created, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, liftTitle, status, created, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, quoteMarkdown, STATUSES, DEFAULT_STATUS,
   };
 });

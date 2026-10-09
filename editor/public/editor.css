@@ -127,7 +127,9 @@ body.no-sidebar .sidebar, body.focus .sidebar { visibility: hidden; }
 }
 .drop-hint strong { font-size: 18px; }
 .drop-hint span { color: var(--muted); }
-.view-tabs.seg button { flex: 1 1 auto; padding: 4px 3px; font-size: 12px; white-space: nowrap; }
+.view-tabs.seg { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
+.view-tabs.seg button { grid-column: span 2; padding: 4px 3px; font-size: 12px; white-space: nowrap; }
+.view-tabs.seg button:nth-child(n + 4) { grid-column: span 3; } /* Links and Quotes on the second row */
 .view-tabs .count { margin-left: 0; font-size: 11px; }
 .view-tabs .count { margin-left: 2px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 
@@ -144,7 +146,7 @@ body[data-kind="thoughts"] .copy-md { display: none !important; }
 .publish-btn svg { width: 15px; height: 15px; }
 .publish-btn[disabled] { opacity: 0.6; cursor: progress; }
 
-body[data-kind="notes"] :is(.stage, .copy-md, #notes-btn, #links-btn, .notes-panel, #chip-notes, [data-cmd="tonotes"]) { display: none !important; }
+body[data-kind="notes"] :is(.stage, .copy-md, #notes-btn, #links-btn, #quotes-btn, .notes-panel, #chip-notes, [data-cmd="tonotes"]) { display: none !important; }
 
 #search {
   flex: 1;
@@ -741,10 +743,9 @@ body[data-mode="preview"]:not(.focus) .read-backdrop { display: none; }
 
 /* The Links tab swaps the editor for the links page, and the sidebar list for tags. */
 .links-page, .links-side { display: none; }
-body[data-view="links"] :is(.sidebar-actions, #filters, nav:not(.links-side), .topbar, .toolbar, #conflict, .work, .statusbar) { display: none !important; }
-body[data-view="links"] .links-side { display: block; }
-body[data-view="links"] .links-page { display: flex; }
-body[data-view="links"] .workspace > .links-page { flex: 1; }
+body[data-page="library"] :is(.sidebar-actions, #filters, nav:not(.links-side), .topbar, .toolbar, #conflict, .work, .statusbar) { display: none !important; }
+body[data-view="links"] #links-side, body[data-view="quotes"] #quotes-side { display: block; }
+body[data-view="links"] #links-page, body[data-view="quotes"] #quotes-page { display: flex; flex: 1; }
 
 .links-side { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
 .links-side h3 { margin: 6px 10px 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -946,7 +947,50 @@ body[data-view="links"] .workspace > .links-page { flex: 1; }
 .art-link .acts .cut-delete { margin-left: auto; }
 .art-links-empty { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
 
+/* Quotes */
+.quote-add-wrap {
+  display: grid;
+  gap: 10px;
+  padding: 14px max(16px, calc((100% - 760px) / 2));
+  border-bottom: 1px solid var(--line);
+}
+.quote-form { display: grid; gap: 8px; }
+.quote-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.quote-form textarea, .quote-form input, #quote-search, .quote-edit textarea, .quote-edit input {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px var(--ui);
+}
+.quote-form textarea, .quote-edit textarea { resize: vertical; font: italic 16px/1.5 var(--a-serif); }
+.quote-form input { flex: 1 1 200px; height: 36px; }
+.quote-form textarea:focus, .quote-form input:focus, #quote-search:focus, .quote-edit textarea:focus, .quote-edit input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#quote-search { height: 34px; }
+.quote-card { display: flex; gap: 12px; padding: 18px 4px; border-bottom: 1px solid var(--line); }
+.quote-card.flash { animation: notes-flash 1.2s ease-out; }
+.quote-main { flex: 1; min-width: 0; }
+.quote-text {
+  margin: 0;
+  padding-left: 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  font: italic 17px/1.55 var(--a-serif);
+  white-space: pre-wrap;
+}
+.quote-cite { margin: 6px 0 0 17px; color: var(--muted); font-size: 13px; }
+.quote-cite a { color: inherit; }
+.quote-cite .who { color: var(--text); font-weight: 600; }
+.quote-card .link-articles { margin-left: 17px; }
+.quote-card .link-note { margin-left: 17px; }
+.quote-edit { display: grid; gap: 8px; }
+.quote-edit input { height: 34px; }
+.art-link blockquote { margin: 0; color: var(--text); font: italic 13.5px/1.45 var(--a-serif); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+
 @media (max-width: 760px) {
+  .quote-add-wrap { padding-left: 16px; padding-right: 16px; }
   .links-head, .links-filter, .links-undo { padding-left: 16px; padding-right: 16px; }
   .links-list { padding: 8px 16px 30vh; }
   #link-search { flex: 1 1 100%; }

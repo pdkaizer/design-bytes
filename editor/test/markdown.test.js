@@ -237,3 +237,12 @@ test('article titles live in front matter', () => {
   assert.equal(md.setMeta('', 'title', 'Design: A Story'), '---\ntitle: "Design: A Story"\n---\n\n');
   assert.equal(md.title('---\ntitle: "Design: A Story"\n---\n'), 'Design: A Story');
 });
+
+test('quoteMarkdown formats a quote with its attribution', () => {
+  assert.equal(md.quoteMarkdown({ text: 'Useful or beautiful.', author: 'William Morris', source: 'The Beauty of Life' }),
+    '> Useful or beautiful.\n>\n> — William Morris, *The Beauty of Life*');
+  assert.equal(md.quoteMarkdown({ text: 'Less, but better.', author: 'Dieter Rams', source: 'https://example.com/rams' }),
+    '> Less, but better.\n>\n> — [Dieter Rams](https://example.com/rams)');
+  assert.equal(md.quoteMarkdown({ text: 'Line one.\nLine two.' }), '> Line one.\n>\n> Line two.');
+  assert.ok(md.render(md.quoteMarkdown({ text: 'Hi.', author: 'Me' })).startsWith('<blockquote>'));
+});

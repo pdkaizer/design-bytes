@@ -16,6 +16,7 @@ const { renderArticle } = require('./lib/template');
 const { suggest, suggestTags } = require('./lib/suggest');
 const links = require('./lib/links');
 const publisher = require('./lib/publish');
+const quotes = require('./lib/quotes');
 const history = require('./lib/history');
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -175,6 +176,7 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
       await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
       const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
       if (!isNote) await links.renameArticle(key(slug), key(next)).catch((err) => console.error('links:', err));
+      if (!isNote) await quotes.renameArticle(key(slug), key(next)).catch((err) => console.error('quotes:', err));
     }
     if (!isNote) {
       // Keep the slug: line in step with the file name.
@@ -279,6 +281,28 @@ async function linksApi(req, res, id, action) {
   throw httpError(404, 'Not found');
 }
 
+// /api/quotes — saved quotes and who said them.
+async function quotesApi(req, res, id) {
+  const method = req.method;
+  if (!id) {
+    if (method === 'GET') return json(res, 200, await quotes.list());
+    if (method === 'POST') {
+      try {
+        return json(res, 201, await quotes.add(await readJson(req)));
+      } catch (err) {
+        if (err.status === 409) return json(res, 409, { error: err.message, quote: err.quote });
+        throw err;
+      }
+    }
+    throw httpError(405, 'Method not allowed');
+  }
+  if (id === 'restore' && method === 'POST') return json(res, 200, await quotes.restore((await readJson(req)).quote));
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw httpError(400, 'Invalid quote');
+  if (method === 'PATCH') return json(res, 200, await quotes.update(id, await readJson(req)));
+  if (method === 'DELETE') return json(res, 200, await quotes.remove(id));
+  throw httpError(405, 'Method not allowed');
+}
+
 async function imagesApi(req, res, url) {
   if (req.method === 'GET') return json(res, 200, await store.listImages());
   if (req.method === 'POST') {
@@ -328,6 +352,7 @@ const server = http.createServer(async (req, res) => {
 
     if (parts[0] === 'api') {
       if (parts[1] === 'links' && parts.length <= 4) return await linksApi(req, res, parts[2], parts[3]);
+      if (parts[1] === 'quotes' && parts.length <= 3) return await quotesApi(req, res, parts[2]);
       if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
       const coll = store.collection(parts[1]);
       if (coll && parts.length <= 5) return await documentsApi(req, res, coll, parts[2], parts[3], parts[4]);
@@ -361,6 +386,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  thoughts:    ${path.relative(process.cwd(), store.THOUGHTS) || '.'}/  →  publishes to ${process.env.THOUGHTS_SITE || '(set THOUGHTS_SITE in .env)'}`);
   console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
   console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
+  console.log(`  quotes:      ${path.relative(process.cwd(), quotes.DIR) || '.'}/`);
   console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
   if (process.argv.includes('--open')) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';

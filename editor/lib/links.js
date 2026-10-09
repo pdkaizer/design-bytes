@@ -51,7 +51,9 @@ function cleanTags(tags) {
   return out.slice(0, 20);
 }
 
-const cleanArticles = (list) => [...new Set((Array.isArray(list) ? list : []).map(String).filter(isSlug))].slice(0, 50);
+// Articles are referred to by slug, thoughts by "thoughts/slug".
+const isRef = (s) => isSlug(s) || (s.startsWith('thoughts/') && isSlug(s.slice(9)));
+const cleanArticles = (list) => [...new Set((Array.isArray(list) ? list : []).map(String).filter(isRef))].slice(0, 50);
 
 function normalizeUrl(raw) {
   let s = String(raw || '').trim();

@@ -92,6 +92,7 @@
     thoughts: { folder: 'thoughts', label: 'Thoughts', search: 'Search thoughts', empty: 'No thoughts yet — New starts one for peterkaizer.com' },
     notes: { folder: 'quick-notes', label: 'Quick notes', search: 'Search quick notes', empty: 'No quick notes yet' },
   };
+  const LIBRARY = ['links', 'quotes']; // sidebar tabs that show a library page instead of the editor
   const listOf = (kind) => ({ notes: state.notes, thoughts: state.thoughts }[kind] || state.articles);
   // How saved links refer to a document: "slug" for articles, "thoughts/slug" for thoughts.
   const docKey = (doc = state.doc) => (doc?.kind === 'thoughts' ? `thoughts/${doc.slug}` : doc?.slug);
@@ -100,7 +101,7 @@
   const isOpen = (kind, slug) => state.doc?.kind === kind && state.doc?.slug === slug;
   function parseHash() {
     const h = decodeURIComponent(location.hash.slice(1));
-    if (!h || h === 'links') return null;
+    if (!h || LIBRARY.includes(h)) return null;
     return h.startsWith('note/') ? { kind: 'notes', slug: h.slice(5) } : { kind: 'articles', slug: h };
   }
 
@@ -123,13 +124,14 @@
     state.view = view;
     prefs.set('view', view);
     body.dataset.view = view;
+    body.dataset.page = LIBRARY.includes(view) ? 'library' : 'editor';
     window.dispatchEvent(new CustomEvent('dbw:view', { detail: view }));
-    if (view === 'links') { // the links page (links.js) takes over
+    if (LIBRARY.includes(view)) { // links.js / quotes.js run these pages
       document.querySelectorAll('#view-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
-      history.replaceState(null, '', '#links');
+      history.replaceState(null, '', `#${view}`);
       return;
     }
-    if (state.doc && location.hash === '#links') history.replaceState(null, '', hashFor(state.doc.kind, state.doc.slug));
+    if (state.doc && LIBRARY.includes(location.hash.slice(1))) history.replaceState(null, '', hashFor(state.doc.kind, state.doc.slug));
     el.search.placeholder = KINDS[view].search;
     el.search.setAttribute('aria-label', KINDS[view].search);
     $('#new').title = view === 'notes' ? 'New quick note' : 'New article';
@@ -173,9 +175,9 @@
     const notes = view === 'notes';
     document.querySelectorAll('#view-tabs button').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.view === view));
-      if (b.dataset.view !== 'links') b.querySelector('.count').textContent = listOf(b.dataset.view).length;
+      if (!LIBRARY.includes(b.dataset.view)) b.querySelector('.count').textContent = listOf(b.dataset.view).length;
     });
-    if (view === 'links') return;
+    if (LIBRARY.includes(view)) return;
     el.filters.hidden = notes;
     if (!notes) renderFilters();
     const q = el.search.value.trim().toLowerCase();
@@ -265,6 +267,8 @@
     updateCursor();
     renderArtLinks();
     loadArtLinks();
+    renderArtQuotes();
+    loadArtQuotes();
     if (kind === 'thoughts') loadCategories().then(() => syncCategory(ed.value));
   }
 
@@ -1864,6 +1868,160 @@
   $('#publish-btn').addEventListener('click', publishThought);
 
   // ---------------------------------------------------------------------------
+  // The open piece's quotes — saved quotes marked "for" it (quotes.js manages the
+  // library). Shown under Links in the notes side panel.
+
+  const artQuotes = { all: [] };
+  const quotesChanged = () => window.dispatchEvent(new CustomEvent('dbw:quotes-changed', { detail: 'article' }));
+
+  async function loadArtQuotes() {
+    try { artQuotes.all = await api('GET', '/api/quotes'); } catch { /* optional */ }
+    renderArtQuotes();
+  }
+  const quotesForDoc = () => (state.doc && state.doc.kind !== 'notes'
+    ? artQuotes.all.filter((q) => (q.articles || []).includes(docKey()))
+    : []);
+
+  function renderArtQuotes() {
+    const mine = quotesForDoc();
+    $('#art-quotes-count').textContent = mine.length ? `· ${mine.length}` : '';
+    const btn = $('#quotes-btn');
+    btn.hidden = !mine.length;
+    btn.querySelector('span').textContent = `${mine.length} quote${mine.length === 1 ? '' : 's'}`;
+    const list = $('#art-quotes-list');
+    if (!mine.length) {
+      const p = document.createElement('p');
+      p.className = 'art-links-empty';
+      p.textContent = 'Quotes for this piece appear here, ready to insert as a blockquote. Search your saved quotes above, or type a new one.';
+      list.replaceChildren(p);
+      return;
+    }
+    list.replaceChildren(...mine.map((q) => {
+      const li = document.createElement('li');
+      li.className = 'art-link';
+      const text = document.createElement('blockquote');
+      text.textContent = `“${q.text}”`;
+      text.title = q.text;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = ['— ' + (q.author || 'Unknown'), q.source && !/^https?:/i.test(q.source) ? q.source : ''].filter(Boolean).join(', ');
+      const acts = document.createElement('div');
+      acts.className = 'acts';
+      const insert = document.createElement('button');
+      insert.className = 'btn';
+      insert.textContent = 'Insert';
+      insert.title = 'Insert as a blockquote with its attribution, at the cursor';
+      insert.addEventListener('mousedown', (e) => e.preventDefault());
+      insert.addEventListener('click', () => { insertBlock(md.quoteMarkdown(q)); toast('Quote inserted'); });
+      const remove = document.createElement('button');
+      remove.className = 'cut-delete';
+      remove.textContent = 'Remove';
+      remove.title = 'Remove from this piece (it stays in your saved quotes)';
+      remove.addEventListener('click', () => setQuoteArticle(q, false));
+      acts.append(insert, remove);
+      li.append(text, meta, acts);
+      return li;
+    }));
+  }
+
+  async function setQuoteArticle(q, attach) {
+    const key = docKey();
+    if (!key) return;
+    const list = new Set(q.articles || []);
+    if (attach) list.add(key); else list.delete(key);
+    try {
+      const updated = await api('PATCH', `/api/quotes/${q.id}`, { articles: [...list] });
+      Object.assign(q, updated);
+      if (!artQuotes.all.some((x) => x.id === q.id)) artQuotes.all.unshift(q);
+      renderArtQuotes();
+      quotesChanged();
+      if (!attach) toast('Removed from this piece — it’s still in your saved quotes');
+    } catch (err) {
+      toast(`Couldn’t update the quote: ${err.message}`);
+    }
+  }
+
+  async function saveNewQuote(text) {
+    const author = await ask({ title: 'Who said it?', label: 'Name', placeholder: 'e.g. Dieter Rams', confirm: 'Save quote',
+      hint: 'Leave it blank if you don’t know. You can add a source on the Quotes page.' });
+    if (author === null) return;
+    try {
+      const q = await api('POST', '/api/quotes', { text, author, articles: [docKey()] });
+      artQuotes.all.unshift(q);
+      renderArtQuotes();
+      quotesChanged();
+      toast('Quote saved for this piece');
+    } catch (err) {
+      if (err.status === 409 && err.data?.quote) { await setQuoteArticle(err.data.quote, true); toast('You’d already saved that quote — added it here'); }
+      else toast(`Couldn’t save the quote: ${err.message}`);
+    }
+  }
+
+  // The "search saved quotes, or type a new one" box.
+  const qInput = $('#art-quote-input');
+  const qMenu = $('#art-quote-menu');
+  let qPick = 0;
+  function quoteOptions() {
+    const q = qInput.value.trim();
+    if (!q) return [];
+    const mine = new Set(quotesForDoc().map((x) => x.id));
+    const words = q.toLowerCase().split(/\s+/);
+    const found = artQuotes.all
+      .filter((x) => !mine.has(x.id) && words.every((w) => [x.text, x.author, x.source].join(' ').toLowerCase().includes(w)))
+      .slice(0, 8);
+    return q.length >= 12 ? [...found, { create: q }] : found;
+  }
+  function drawQuoteMenu() {
+    const options = quoteOptions();
+    qPick = Math.min(qPick, Math.max(0, options.length - 1));
+    qMenu.hidden = !qInput.value.trim();
+    if (qMenu.hidden) return options;
+    const rows = options.map((o, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      if (i === qPick) b.className = 'on';
+      const main = document.createElement('span');
+      const sub = document.createElement('small');
+      if (o.create) { main.textContent = 'Save as a new quote…'; sub.textContent = `“${o.create.slice(0, 80)}${o.create.length > 80 ? '…' : ''}”`; }
+      else { main.textContent = `“${o.text.slice(0, 90)}${o.text.length > 90 ? '…' : ''}”`; sub.textContent = `— ${o.author || 'Unknown'}`; }
+      b.append(main, sub);
+      b.addEventListener('mousedown', (e) => { e.preventDefault(); chooseQuote(o); });
+      return b;
+    });
+    if (!rows.length) {
+      const none = document.createElement('button');
+      none.type = 'button';
+      none.disabled = true;
+      none.textContent = 'No saved quotes match — keep typing to save a new one';
+      rows.push(none);
+    }
+    qMenu.replaceChildren(...rows);
+    return options;
+  }
+  async function chooseQuote(o) {
+    qInput.value = '';
+    qMenu.hidden = true;
+    if (o.create) await saveNewQuote(o.create);
+    else await setQuoteArticle(o, true);
+  }
+  qInput.addEventListener('input', () => { qPick = 0; drawQuoteMenu(); });
+  qInput.addEventListener('focus', () => { if (!artQuotes.all.length) loadArtQuotes(); });
+  qInput.addEventListener('blur', () => { qMenu.hidden = true; });
+  qInput.addEventListener('keydown', (e) => {
+    const options = drawQuoteMenu();
+    if (e.key === 'ArrowDown' && options.length) { e.preventDefault(); qPick = (qPick + 1) % options.length; drawQuoteMenu(); }
+    else if (e.key === 'ArrowUp' && options.length) { e.preventDefault(); qPick = (qPick - 1 + options.length) % options.length; drawQuoteMenu(); }
+    else if (e.key === 'Enter' && options[qPick]) { e.preventDefault(); chooseQuote(options[qPick]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); qInput.value = ''; qMenu.hidden = true; }
+  });
+  $('#quotes-btn').addEventListener('click', () => {
+    toggleNotes(true);
+    $('#art-quotes').scrollIntoView({ block: 'start' });
+  });
+  window.addEventListener('dbw:quotes-changed', (e) => { if (e.detail !== 'article') loadArtQuotes(); });
+  window.addEventListener('focus', () => { if (state.doc && state.doc.kind !== 'notes') loadArtQuotes(); });
+
+  // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
 
   function stamp() {
@@ -2017,7 +2175,7 @@
       await loadList();
       refresh(true);
       if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
-      if (renamed && doc.kind !== 'notes') loadArtLinks(); // its links followed it
+      if (renamed && doc.kind !== 'notes') { loadArtLinks(); loadArtQuotes(); } // its links and quotes followed it
     } catch (err) {
       if (err.status === 409) {
         state.slugRefused = to;
@@ -2250,7 +2408,7 @@
 
     const savedView = prefs.get('view', 'articles');
     const askedFor = parseHash(); // a link straight to an article or note opens it instead
-    const startedOnLinks = location.hash === '#links';
+    const startedOnLibrary = LIBRARY.find((v) => location.hash === `#${v}`);
     state.view = savedView === 'notes' ? 'notes' : 'articles';
     await loadList();
     setView(state.view);
@@ -2262,7 +2420,8 @@
     if (found) await openDoc(wanted.kind, found.slug);
     else if (first) await openDoc(listOf(state.view)[0] ? state.view : 'articles', first.slug);
     else closeDoc();
-    if (startedOnLinks || (savedView === 'links' && !askedFor)) setView('links'); // reopen where you left off
+    const reopen = startedOnLibrary || (LIBRARY.includes(savedView) && !askedFor ? savedView : null);
+    if (reopen) setView(reopen); // reopen where you left off
   }
 
   // A few helpers for links.js, which runs the Links page.
