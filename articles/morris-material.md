@@ -2,6 +2,7 @@
 title: How the Arts and Crafts Movement Shaped Digital Product Design
 slug: morris-material
 status: published
+date: 2025-08-05
 created: 2025-08-05 20:20
 ---
 
