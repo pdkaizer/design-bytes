@@ -23,7 +23,8 @@ const OUT = path.join(store.ROOT, 'dist');
 
   // Only published articles make it into the site.
   const all = await store.listArticles();
-  const articles = all.filter((a) => a.status === 'published');
+  const articles = all.filter((a) => a.status === 'published')
+    .sort((a, b) => (b.published ?? b.mtime) - (a.published ?? a.mtime)); // newest published first
   for (const { slug, mtime } of articles) {
     const { content } = await store.readArticle(slug);
     await fsp.writeFile(path.join(OUT, 'articles', `${slug}.html`), renderArticle(content, { mtime }));

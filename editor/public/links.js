@@ -21,6 +21,7 @@
   const ICONS = {
     edit: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12.5 4.5 15.5 7.5 7 16H4v-3l8.5-8.5Z"/></svg>',
     trash: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 6h12M8 6V4.5h4V6M6 6l.7 10h6.6L14 6"/></svg>',
+    share: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.5V3.5M6.5 7 10 3.5 13.5 7"/><path d="M5.5 10H5a1.5 1.5 0 0 0-1.5 1.5v4A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5v-4A1.5 1.5 0 0 0 15 10h-.5"/></svg>',
     copy: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6.5" y="6.5" width="10" height="11" rx="2"/><path d="M13.5 6.5V4.5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1"/></svg>',
     spark: '<svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2.5c.3 2.9 1.1 4.6 2.2 5.6 1 1 2.6 1.6 5.3 1.9-2.7.3-4.3.9-5.3 1.9-1.1 1-1.9 2.7-2.2 5.6-.3-2.9-1.1-4.6-2.2-5.6-1-1-2.6-1.6-5.3-1.9 2.7-.3 4.3-.9 5.3-1.9 1.1-1 1.9-2.7 2.2-5.6Z"/></svg>',
   };
@@ -149,6 +150,7 @@
             ? l.tags.map((t) => h('button', { class: `tag-chip${L.tags.has(t) ? ' on' : ''}`, title: `Show links tagged #${t}`, onclick: () => toggleTag(t) }, `#${t}`))
             : h('button', { class: 'tag-chip suggested', onclick: () => startEdit(l.id) }, '+ Add tags'))),
       h('div', { class: 'link-actions' },
+        h('button', { class: 'icon-btn', title: 'Share on social media', 'aria-label': 'Share on social media', html: ICONS.share, onclick: () => window.dbw.shareToSocial('link', l) }),
         h('button', { class: 'icon-btn', title: 'Copy link', 'aria-label': 'Copy link', html: ICONS.copy, onclick: () => copy(l) }),
         h('button', { class: 'icon-btn', title: 'Edit title, tags and note', 'aria-label': 'Edit', html: ICONS.edit, onclick: () => startEdit(l.id) }),
         h('button', { class: 'icon-btn', title: 'Delete', 'aria-label': 'Delete', html: ICONS.trash, onclick: () => remove(l) })));

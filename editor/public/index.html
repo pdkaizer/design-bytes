@@ -12,8 +12,10 @@
 <div class="app">
   <aside class="sidebar" aria-label="Articles">
     <header class="brand">
-      <img src="/images/db-icon@2x.png" alt="DB" width="32" height="32">
-      <h1>Writer</h1>
+      <button class="brand-home" id="brand-home" title="Home">
+        <img src="/images/db-icon@2x.png" alt="DB" width="32" height="32">
+        <h1>Writer</h1>
+      </button>
     </header>
     <div class="seg view-tabs" id="view-tabs" role="group" aria-label="Show">
       <button data-view="articles" aria-pressed="true">Articles <span class="count"></span></button>
@@ -21,6 +23,7 @@
       <button data-view="notes" aria-pressed="false">Notes <span class="count"></span></button>
       <button data-view="links" aria-pressed="false">Links <span class="count"></span></button>
       <button data-view="quotes" aria-pressed="false">Quotes <span class="count"></span></button>
+      <button data-view="social" aria-pressed="false">Social <span class="count"></span></button>
     </div>
     <div class="sidebar-actions">
       <input id="search" type="search" placeholder="Search articles" aria-label="Search articles">
@@ -31,11 +34,13 @@
     <nav><ul id="list"></ul></nav>
     <nav class="links-side" id="links-side" aria-label="Tags"></nav>
     <nav class="links-side quotes-side" id="quotes-side" aria-label="People"></nav>
+    <nav class="links-side social-side" id="social-side" aria-label="Filter posts"></nav>
   </aside>
   <div class="scrim" id="scrim"></div>
 
   <main class="workspace">
     <header class="topbar">
+      <button class="icon-btn" id="go-home" title="Home" aria-label="Home"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3.5 9 10 3.5 16.5 9v7a.5.5 0 0 1-.5.5h-3.5v-5h-5v5H4a.5.5 0 0 1-.5-.5V9Z"/></svg></button>
       <button class="icon-btn" id="toggle-sidebar" title="Toggle sidebar (⌘\)" aria-label="Toggle sidebar">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><path d="M7.5 3.5v13"/></svg>
       </button>
@@ -62,6 +67,10 @@
           <option value="final">Final</option>
           <option value="published">Published</option>
         </select>
+      </label>
+      <label class="stage pubdate" id="pubdate" title="When it was published — change it for pieces published before they came into DB Writer">
+        <span>Published</span>
+        <input type="date" id="pubdate-input" aria-label="Publish date">
       </label>
       <span id="status" class="status" role="status"></span>
       <div class="seg" id="modes" role="group" aria-label="View">
@@ -249,6 +258,14 @@
       <ul class="links-list quotes-list" id="quotes-list"></ul>
     </section>
 
+    <section class="links-page social-page" id="social-page" aria-label="Social posts">
+      <header class="quote-add-wrap" id="social-compose"></header>
+      <div class="social-tools"><input id="social-search" type="search" placeholder="Search posts" aria-label="Search posts"></div>
+      <div class="links-filter" id="social-filter" hidden></div>
+      <div class="links-undo" id="social-undo" hidden><span></span><button class="btn">Undo</button></div>
+      <ul class="links-list" id="social-list"></ul>
+    </section>
+
     <footer class="statusbar">
       <span id="stats"></span>
       <button id="issues-btn" class="issues-btn" hidden></button>
@@ -270,6 +287,45 @@
     </footer>
   </main>
 </div>
+
+<main class="home" id="home" aria-label="Home">
+  <header class="home-head">
+    <div class="home-brand"><img src="/images/db-icon@2x.png" alt="DB" width="36" height="36"><h1>Writer</h1></div>
+    <input id="home-search" type="search" placeholder="Search everything — articles, thoughts, notes, links, quotes" aria-label="Search everything">
+    <button class="icon-btn import-btn" id="home-import" title="Import Markdown files as articles" aria-label="Import"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.5V3.5M6.5 7 10 3.5 13.5 7"/><path d="M3 12.5v2A2.5 2.5 0 0 0 5.5 17h9a2.5 2.5 0 0 0 2.5-2.5v-2"/></svg></button>
+    <div class="menu-wrap">
+      <button class="btn primary" id="home-new" aria-haspopup="menu" aria-expanded="false">New ▾</button>
+      <div class="menu" id="home-new-menu" role="menu" hidden>
+        <button role="menuitem" data-new="articles">Article</button>
+        <button role="menuitem" data-new="thoughts">Thought for peterkaizer.com</button>
+        <button role="menuitem" data-new="notes">Quick note</button>
+        <hr>
+        <button role="menuitem" data-new="link">Link</button>
+        <button role="menuitem" data-new="quote">Quote</button>
+        <button role="menuitem" data-new="social">Social media post</button>
+      </div>
+    </div>
+  </header>
+  <div class="home-body" id="home-body">
+    <section class="home-stats" id="home-stats" aria-label="Writing stats"></section>
+    <section class="home-section activity" id="home-activity" aria-labelledby="h-activity">
+      <h2 id="h-activity">Activity <span class="activity-summary" id="activity-summary"></span></h2>
+      <div class="activity-scroll"><div class="activity-graph" id="activity-graph"></div></div>
+      <div class="activity-foot">
+        <details class="activity-table"><summary>View as a table</summary><div id="activity-table"></div></details>
+        <span class="grow"></span>
+        <span class="activity-legend" aria-hidden="true">Less <i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More</span>
+      </div>
+      <div class="activity-tip" id="activity-tip" role="tooltip" hidden></div>
+    </section>
+    <section class="home-section" id="home-continue" aria-labelledby="h-continue">
+      <h2 id="h-continue">Continue writing</h2>
+      <div class="continue-row" id="continue-row"></div>
+    </section>
+    <div class="home-grid" id="home-grid"></div>
+  </div>
+  <div class="home-body home-results" id="home-results" hidden></div>
+</main>
 
 <button class="focus-exit" id="focus-exit">Exit focus · Esc</button>
 <div class="cut-marker" id="cut-marker" hidden><span>Goes back here</span></div>
@@ -327,5 +383,7 @@
 <script src="/app.js"></script>
 <script src="/links.js"></script>
 <script src="/quotes.js"></script>
+<script src="/social.js"></script>
+<script src="/home.js"></script>
 </body>
 </html>

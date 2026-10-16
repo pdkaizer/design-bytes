@@ -17,6 +17,8 @@ const { suggest, suggestTags } = require('./lib/suggest');
 const links = require('./lib/links');
 const publisher = require('./lib/publish');
 const quotes = require('./lib/quotes');
+const { writingStats, activity } = require('./lib/stats');
+const social = require('./lib/social');
 const history = require('./lib/history');
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -93,7 +95,7 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
   if (!slug) {
     if (method === 'GET') return json(res, 200, await coll.list());
     if (method === 'POST') {
-      const { title, content: imported, filename, name: chosen } = await readJson(req);
+      const { title, content: imported, filename, name: chosen, published: alreadyPublished, date } = await readJson(req);
       const clean = String(title || '').trim();
       let slugged;
       let content;
@@ -111,6 +113,11 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
           content = md.setMeta(content, 'slug', slugged, { after: 'title' });
           if (!md.STATUSES.includes(String(md.frontMatter(content).data.status || '').toLowerCase())) {
             content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
+          }
+          // A piece that was published before it came into DB Writer keeps its real publish date.
+          if (alreadyPublished) {
+            content = md.setMeta(content, 'status', 'published');
+            if (/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) content = md.setMeta(content, 'date', date, { after: 'status' });
           }
         }
       } else if (isNote) {
@@ -177,6 +184,7 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
       const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
       if (!isNote) await links.renameArticle(key(slug), key(next)).catch((err) => console.error('links:', err));
       if (!isNote) await quotes.renameArticle(key(slug), key(next)).catch((err) => console.error('quotes:', err));
+      if (!isNote) await social.renameArticle(key(slug), key(next)).catch((err) => console.error('social:', err));
     }
     if (!isNote) {
       // Keep the slug: line in step with the file name.
@@ -303,6 +311,21 @@ async function quotesApi(req, res, id) {
   throw httpError(405, 'Method not allowed');
 }
 
+// /api/social — social media posts.
+async function socialApi(req, res, id) {
+  const method = req.method;
+  if (!id) {
+    if (method === 'GET') return json(res, 200, await social.list());
+    if (method === 'POST') return json(res, 201, await social.add(await readJson(req)));
+    throw httpError(405, 'Method not allowed');
+  }
+  if (id === 'restore' && method === 'POST') return json(res, 200, await social.restore((await readJson(req)).post));
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw httpError(400, 'Invalid post');
+  if (method === 'PATCH') return json(res, 200, await social.update(id, await readJson(req)));
+  if (method === 'DELETE') return json(res, 200, await social.remove(id));
+  throw httpError(405, 'Method not allowed');
+}
+
 async function imagesApi(req, res, url) {
   if (req.method === 'GET') return json(res, 200, await store.listImages());
   if (req.method === 'POST') {
@@ -353,6 +376,9 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === 'api') {
       if (parts[1] === 'links' && parts.length <= 4) return await linksApi(req, res, parts[2], parts[3]);
       if (parts[1] === 'quotes' && parts.length <= 3) return await quotesApi(req, res, parts[2]);
+      if (parts[1] === 'social' && parts.length <= 3) return await socialApi(req, res, parts[2]);
+      if (parts[1] === 'stats' && parts.length === 2 && req.method === 'GET') return json(res, 200, await writingStats());
+      if (parts[1] === 'activity' && parts.length === 2 && req.method === 'GET') return json(res, 200, await activity());
       if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
       const coll = store.collection(parts[1]);
       if (coll && parts.length <= 5) return await documentsApi(req, res, coll, parts[2], parts[3], parts[4]);
@@ -387,6 +413,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
   console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
   console.log(`  quotes:      ${path.relative(process.cwd(), quotes.DIR) || '.'}/`);
+  console.log(`  social:      ${path.relative(process.cwd(), social.DIR) || '.'}/`);
   console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
   if (process.argv.includes('--open')) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';

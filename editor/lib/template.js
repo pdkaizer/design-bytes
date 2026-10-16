@@ -54,7 +54,7 @@ ${body}
 // (articles/<slug>.html) so their ../images/ paths keep working.
 function renderArticle(markdown, { mtime = Date.now() } = {}) {
   const { minutes } = md.stats(markdown);
-  const meta = `<p class="meta">${formatDate(mtime)} · ${minutes} min read</p>`;
+  const meta = `<p class="meta">${formatDate(md.published(markdown) ?? mtime)} · ${minutes} min read</p>`;
   let html = md.render(markdown, { withTitle: true });
   html = /^<h[12][ >]/.test(html)
     ? html.replace(/^(<h[12][^>]*>[\s\S]*?<\/h[12]>)/, `$1\n${meta}`)
@@ -71,7 +71,7 @@ function renderIndex(articles) {
   const items = articles.map((a) => `<li><a href="articles/${esc(a.slug)}.html">
 <h2>${esc(a.title)}</h2>
 ${a.excerpt ? `<p>${esc(a.excerpt)}</p>` : ''}
-<span class="meta">${formatDate(a.mtime)} · ${a.minutes} min read</span>
+<span class="meta">${formatDate(a.published ?? a.mtime)} · ${a.minutes} min read</span>
 </a></li>`).join('\n');
   return page({
     title: 'Design Bytes',

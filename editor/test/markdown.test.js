@@ -246,3 +246,9 @@ test('quoteMarkdown formats a quote with its attribution', () => {
   assert.equal(md.quoteMarkdown({ text: 'Line one.\nLine two.' }), '> Line one.\n>\n> Line two.');
   assert.ok(md.render(md.quoteMarkdown({ text: 'Hi.', author: 'Me' })).startsWith('<blockquote>'));
 });
+
+test('published: reads the date: line', () => {
+  assert.equal(md.published('---\ndate: 2025-08-05\n---\n'), new Date(2025, 7, 5).getTime());
+  assert.equal(md.published('---\ndate: 2025-08-05T09:30:00.000Z\n---\n'), Date.parse('2025-08-05T09:30:00.000Z'));
+  assert.equal(md.published('---\nstatus: published\n---\n'), null);
+});

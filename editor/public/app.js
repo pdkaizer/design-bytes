@@ -55,6 +55,18 @@
   };
 
   const enc = encodeURIComponent;
+
+  // Builds an element: h('label', { class: 'x', onclick: fn }, 'text', child…)
+  function h(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') node.className = v;
+      else if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
+      else if (v !== false && v != null) node.setAttribute(k, v === true ? '' : v);
+    }
+    node.append(...children.flat().filter((c) => c != null && c !== false));
+    return node;
+  }
   const isMobile = () => matchMedia('(max-width: 760px)').matches;
 
   // ---------------------------------------------------------------------------
@@ -92,7 +104,7 @@
     thoughts: { folder: 'thoughts', label: 'Thoughts', search: 'Search thoughts', empty: 'No thoughts yet — New starts one for peterkaizer.com' },
     notes: { folder: 'quick-notes', label: 'Quick notes', search: 'Search quick notes', empty: 'No quick notes yet' },
   };
-  const LIBRARY = ['links', 'quotes']; // sidebar tabs that show a library page instead of the editor
+  const LIBRARY = ['links', 'quotes', 'social']; // sidebar tabs that show a library page instead of the editor
   const listOf = (kind) => ({ notes: state.notes, thoughts: state.thoughts }[kind] || state.articles);
   // How saved links refer to a document: "slug" for articles, "thoughts/slug" for thoughts.
   const docKey = (doc = state.doc) => (doc?.kind === 'thoughts' ? `thoughts/${doc.slug}` : doc?.slug);
@@ -101,7 +113,7 @@
   const isOpen = (kind, slug) => state.doc?.kind === kind && state.doc?.slug === slug;
   function parseHash() {
     const h = decodeURIComponent(location.hash.slice(1));
-    if (!h || LIBRARY.includes(h)) return null;
+    if (!h || h === 'home' || LIBRARY.includes(h)) return null;
     return h.startsWith('note/') ? { kind: 'notes', slug: h.slice(5) } : { kind: 'articles', slug: h };
   }
 
@@ -125,6 +137,7 @@
     prefs.set('view', view);
     body.dataset.view = view;
     body.dataset.page = LIBRARY.includes(view) ? 'library' : 'editor';
+    applyDrawer();
     window.dispatchEvent(new CustomEvent('dbw:view', { detail: view }));
     if (LIBRARY.includes(view)) { // links.js / quotes.js run these pages
       document.querySelectorAll('#view-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
@@ -215,7 +228,8 @@
         badge.dataset.status = a.status;
         badge.textContent = STATUS_LABELS[a.status];
         const middle = view === 'thoughts' ? (a.category || 'No category') : `${a.words.toLocaleString()} words`;
-        meta.append(badge, ` · ${middle} · ${added ? `Added ${added}` : ago(a.mtime)}`);
+        const when = a.status === 'published' && a.published != null ? `Published ${addedLabel(a.published, false)}` : added ? `Added ${added}` : ago(a.mtime);
+        meta.append(badge, ` · ${middle} · ${when}`);
       }
       btn.append(title, meta);
       li.append(btn);
@@ -252,6 +266,8 @@
     closeHistory();
     state.doc = { kind, slug: article.slug, saved: article.content, mtime: article.mtime };
     body.dataset.kind = kind;
+    body.dataset.page = 'editor';
+    applyDrawer();
     if (state.view !== kind) setView(kind);
     hideConflict();
     setFileText(article.content);
@@ -390,7 +406,9 @@
       const title = isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
       el.title.textContent = title;
       const added = md.created(text);
+      const pubMs = isNote ? null : md.published(text);
       el.file.textContent = `${KINDS[state.doc.kind].folder}/${state.doc.slug}.md` +
+        (pubMs != null ? ` · Published ${addedLabel(pubMs, false, true)}` : '') +
         (added ? ` · Added ${addedLabel(added.ms, added.hasTime, true)}` : '');
       document.title = `${title} · DB Writer`;
 
@@ -409,12 +427,15 @@
         el.stage.dataset.status = status;
       }
       body.dataset.status = status || '';
+      syncPubDate(text);
       if (!isNote && state.doc.kind === 'thoughts') syncCategory(text);
 
       const entry = listOf(state.doc.kind).find((a) => a.slug === state.doc.slug);
       const createdMs = added ? added.ms : null;
       const category = state.doc.kind === 'thoughts' ? String(md.frontMatter(text).data.category || '').trim() : undefined;
       if (entry && category !== undefined && entry.category !== category) { entry.category = category; renderList(); }
+      const pubForList = isNote ? null : md.published(text);
+      if (entry && entry.published !== pubForList) { entry.published = pubForList; renderList(); }
       if (entry && (entry.title !== title || entry.words !== s.words || entry.status !== status || entry.created !== createdMs)) {
         entry.title = title;
         entry.words = s.words;
@@ -723,9 +744,43 @@
     return true;
   }
 
+  const isoDay = (ms) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   function setArticleStatus(value) {
-    if (setMetaInEditor('status', value)) toast(`Marked as ${STATUS_LABELS[value]}`);
+    if (!setMetaInEditor('status', value)) return;
+    // Something marked Published gets a publish date — today, unless it already has one.
+    if (value === 'published' && md.published(ed.value) == null) {
+      setMetaInEditor('date', isoDay(Date.now()), { after: 'status' });
+      toast('Marked as Published, dated today — change the date next to it if it went out earlier');
+    } else {
+      toast(`Marked as ${STATUS_LABELS[value]}`);
+    }
   }
+
+  // The publish date (date: in the front matter), shown next to the status.
+  const pubInput = $('#pubdate-input');
+  function syncPubDate(text) {
+    const ms = md.published(text);
+    const show = state.doc && state.doc.kind !== 'notes' && (ms != null || md.status(text) === 'published');
+    body.classList.toggle('has-pubdate', !!show);
+    const value = ms != null ? isoDay(ms) : '';
+    if (document.activeElement !== pubInput && pubInput.value !== value) pubInput.value = value;
+  }
+  pubInput.addEventListener('change', () => {
+    if (!state.doc) return;
+    if (pubInput.value) {
+      setMetaInEditor('date', pubInput.value, { after: 'status' });
+      toast(`Publish date set to ${new Date(`${pubInput.value}T12:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`);
+    } else {
+      // Cleared: take the date: line out.
+      const text = ed.value;
+      const next = md.removeMeta(text, 'date');
+      if (next !== text) replaceRange(0, text.length - (text.length - md.frontMatter(text).end), next.slice(0, md.frontMatter(next).end));
+    }
+  });
 
   // An article's file name follows the slug: line in its front matter. Once you've
   // changed it and moved the cursor out of the front matter, the file is renamed.
@@ -1478,7 +1533,8 @@
       const content = await file.text();
       const title = md.title(content) || (kind === 'notes' ? md.displayTitle(content) : '');
       const stem = file.name.replace(/\.[^.]*$/, '');
-      items.push({ file, content, title, name: slugifyTitle(title || stem) || slugifyTitle(stem) || 'untitled' });
+      const fileDate = md.published(content);
+      items.push({ file, content, title, name: slugifyTitle(title || stem) || slugifyTitle(stem) || 'untitled', date: fileDate != null ? isoDay(fileDate) : '' });
     }
     if (items.length && !(await askImportNames(items, kind))) return; // cancelled
 
@@ -1487,7 +1543,7 @@
     let done = 0;
     for (const item of items) {
       try {
-        last = await api('POST', `/api/${kind}`, { content: item.content, filename: item.file.name, name: item.name });
+        last = await api('POST', `/api/${kind}`, { content: item.content, filename: item.file.name, name: item.name, published: !!item.published, date: item.date });
         done++;
       } catch (err) {
         failed.push(`${item.file.name} (${err.message})`);
@@ -1516,6 +1572,11 @@
       ? 'They’ll be added as quick notes. Change a file name if you like.'
       : 'They’ll be added as articles in Backlog. Change a file name if you like.';
     $('#import-ok').textContent = items.length === 1 ? 'Import' : `Import ${items.length}`;
+    // Pieces published before they came into DB Writer keep their real publish date.
+    const canPublish = kind !== 'notes';
+    const already = h('input', { type: 'checkbox' });
+    const alreadyRow = canPublish ? h('label', { class: 'import-already' }, already,
+      h('span', {}, h('b', {}, 'Already published'), ' — mark as Published and keep the date each one went out')) : null;
 
     const rows = items.map((item) => {
       const row = document.createElement('div');
@@ -1539,9 +1600,21 @@
       box.append(pre, input, post);
       const note = document.createElement('div');
       note.className = 'note';
-      row.append(from, box, note);
-      return { item, input, note, row };
+      const date = h('input', { type: 'date', 'aria-label': `Publish date for ${item.file.name}` });
+      date.value = item.date || '';
+      const dateRow = h('label', { class: 'import-date', hidden: true }, 'Published on ', date,
+        item.date ? h('span', { class: 'from-file' }, '(from the file)') : null);
+      row.append(from, box, dateRow, note);
+      return { item, input, note, row, date, dateRow };
     });
+    if (alreadyRow) {
+      already.addEventListener('change', () => {
+        rows.forEach((r) => { r.dateRow.hidden = !already.checked; });
+        $('#import-sub').textContent = already.checked
+          ? `They’ll be added as Published ${kind === 'thoughts' ? 'thoughts' : 'articles'}, with the dates below. Change a file name if you like.`
+          : `They’ll be added as ${kind === 'thoughts' ? 'thoughts' : 'articles'} in Backlog. Change a file name if you like.`;
+      });
+    }
 
     // Show what each name will really be saved as, and flag clashes.
     const check = () => {
@@ -1561,11 +1634,14 @@
     };
     rows.forEach((r) => r.input.addEventListener('input', check));
     check();
-    $('#import-rows').replaceChildren(...rows.map((r) => r.row));
+    $('#import-rows').replaceChildren(...(alreadyRow ? [alreadyRow] : []), ...rows.map((r) => r.row));
 
     return new Promise((resolve) => {
       dialog.returnValue = '';
-      dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok'), { once: true });
+      dialog.addEventListener('close', () => {
+        if (dialog.returnValue === 'ok' && already.checked) rows.forEach((r) => { r.item.published = true; r.item.date = r.date.value; });
+        resolve(dialog.returnValue === 'ok');
+      }, { once: true });
       dialog.showModal();
       rows[0].input.focus();
       rows[0].input.select();
@@ -2316,14 +2392,35 @@
   $('#focus').addEventListener('click', () => toggleFocus(true));
   $('#focus-exit').addEventListener('click', () => toggleFocus(false));
 
+  // While writing, the sidebar is a drawer (hidden unless you open it with ⌘\ or
+  // the toolbar button). The Links and Quotes pages always show it — it holds their filters.
+  function applyDrawer() {
+    if (isMobile()) return;
+    body.classList.toggle('no-sidebar', body.dataset.page === 'editor' && !prefs.get('drawer', false));
+  }
+
   function toggleSidebar() {
     if (isMobile()) {
       body.classList.toggle('show-sidebar');
-    } else {
-      body.classList.toggle('no-sidebar');
-      prefs.set('sidebar', !body.classList.contains('no-sidebar'));
+    } else if (body.dataset.page === 'editor') {
+      prefs.set('drawer', body.classList.contains('no-sidebar'));
+      applyDrawer();
     }
   }
+
+  // Home: the entry page (home.js draws it).
+  async function goHome() {
+    await save();
+    closeHistory();
+    closeSuggest();
+    body.dataset.page = 'home';
+    body.classList.remove('show-sidebar');
+    history.replaceState(null, '', '#home');
+    document.title = 'DB Writer';
+    window.dispatchEvent(new CustomEvent('dbw:home'));
+  }
+  $('#go-home').addEventListener('click', goHome);
+  $('#brand-home').addEventListener('click', goHome);
   $('#toggle-sidebar').addEventListener('click', toggleSidebar);
   $('#scrim').addEventListener('click', () => body.classList.remove('show-sidebar'));
 
@@ -2381,6 +2478,7 @@
 
   window.addEventListener('focus', checkDisk);
   window.addEventListener('hashchange', () => {
+    if (location.hash === '#home') { if (body.dataset.page !== 'home') goHome(); return; }
     const target = parseHash();
     if (target && !isOpen(target.kind, target.slug)) openDoc(target.kind, target.slug);
   });
@@ -2403,7 +2501,6 @@
     setTheme(prefs.get('theme', 'auto'));
     setFont(prefs.get('font', 'mono'));
     setMode(prefs.get('mode', 'split'));
-    if (prefs.get('sidebar', true) === false) body.classList.add('no-sidebar');
     if (prefs.get('notes', false)) { body.classList.add('notes-open'); $('#notes').inert = false; $('#notes-btn').setAttribute('aria-pressed', 'true'); }
 
     const savedView = prefs.get('view', 'articles');
@@ -2420,8 +2517,9 @@
     if (found) await openDoc(wanted.kind, found.slug);
     else if (first) await openDoc(listOf(state.view)[0] ? state.view : 'articles', first.slug);
     else closeDoc();
-    const reopen = startedOnLibrary || (LIBRARY.includes(savedView) && !askedFor ? savedView : null);
-    if (reopen) setView(reopen); // reopen where you left off
+    // Start on Home, unless the address asked for a specific piece or page.
+    if (startedOnLibrary) setView(startedOnLibrary);
+    else if (!(askedFor && found)) goHome();
   }
 
   // A few helpers for links.js, which runs the Links page.
@@ -2432,6 +2530,18 @@
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),
       ...state.thoughts.map((t) => ({ ...t, slug: `thoughts/${t.slug}`, kind: 'thoughts' })),
     ],
+    lists: () => ({ articles: state.articles, thoughts: state.thoughts, notes: state.notes }),
+    loadList,
+    goHome,
+    openDoc: (kind, slug) => { if (state.view !== kind) setView(kind); openDoc(kind, slug); if (isOpen(kind, slug)) { body.dataset.page = 'editor'; applyDrawer(); history.replaceState(null, '', hashFor(kind, slug)); refresh(true); } },
+    newDoc: (kind) => { setView(kind); newDoc(); },
+    importInto: (kind) => { setView(kind); $('#import-picker').click(); },
+    showList: (kind) => { // the full list for a collection, in the drawer
+      setView(kind);
+      prefs.set('drawer', true);
+      applyDrawer();
+      if (!state.doc) body.classList.add('empty');
+    },
     openArticle: (key) => {
       const kind = key.startsWith('thoughts/') ? 'thoughts' : 'articles';
       setView(kind);

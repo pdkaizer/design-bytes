@@ -250,6 +250,29 @@
     return ms == null ? null : { ms, hasTime: /\d:\d/.test(raw) };
   }
 
+  // Returns src without `key` (and any indented lines belonging to it) in its front matter.
+  function removeMeta(src, key) {
+    const text = String(src == null ? '' : src);
+    const fm = frontMatter(text);
+    if (!fm.end) return text;
+    const lines = text.slice(0, fm.end).split('\n');
+    const out = [];
+    let skipping = false;
+    for (const line of lines) {
+      const k = line.match(/^([A-Za-z0-9_-]+):/)?.[1];
+      if (k) skipping = k === key;
+      else if (!/^(\s+\S|-\s)/.test(line)) skipping = false;
+      if (!skipping) out.push(line);
+    }
+    return out.join('\n') + text.slice(fm.end);
+  }
+
+  // date: in the front matter — when a piece was published (the field 11ty, Jekyll and
+  // Ghost exports use). → milliseconds, or null.
+  function published(src) {
+    return parseStamp(String(frontMatter(src).data.date || '').trim());
+  }
+
   function status(src) {
     const value = String(frontMatter(src).data.status || '').toLowerCase();
     return STATUSES.includes(value) ? value : DEFAULT_STATUS;
@@ -976,6 +999,6 @@
 
   return {
     render, inline, title, displayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, liftTitle, status, created, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, quoteMarkdown, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, removeMeta, liftTitle, status, created, published, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, quoteMarkdown, STATUSES, DEFAULT_STATUS,
   };
 });

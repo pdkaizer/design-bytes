@@ -63,7 +63,7 @@ function collection(kind) {
       const { words, minutes } = md.stats(content);
       const title = (isNote ? md.displayTitle(content) : md.title(content)) || (isNote ? 'Untitled note' : slug);
       const added = md.created(content); // { ms, hasTime } from created: in the front matter
-      const base = { slug, title, words, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime };
+      const base = { slug, title, words, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime, published: md.published(content) };
       if (isNote) return { ...base, excerpt: md.excerpt(content, 140) };
       const doc = { ...base, status: md.status(content), excerpt: md.excerpt(content), minutes };
       if (kind === 'thoughts') doc.category = String(md.frontMatter(content).data.category || '').trim();
