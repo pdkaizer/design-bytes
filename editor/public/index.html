@@ -347,6 +347,27 @@
   </div>
 </div>
 
+<dialog id="ghost-dialog" class="import-dialog ghost-dialog">
+  <form method="dialog">
+    <h2>Import from Ghost</h2>
+    <p id="ghost-sub"></p>
+    <label class="ghost-site"><span>Your Design Bytes address</span>
+      <input id="ghost-site" placeholder="https://…" autocomplete="off" spellcheck="false">
+      <small>Ghost’s export writes this as a placeholder in image and link addresses.</small>
+    </label>
+    <label class="import-already"><input type="checkbox" id="ghost-images" checked>
+      <span><b>Download images</b> into images/, so the articles don’t depend on Ghost</span></label>
+    <div class="ghost-tools"><span>Posts</span><span class="grow"></span>
+      <button type="button" class="linkish" id="ghost-all">Select all</button>
+      <button type="button" class="linkish" id="ghost-none">None</button></div>
+    <div class="ghost-list" id="ghost-list"></div>
+    <div class="dialog-actions">
+      <button value="ok" class="btn primary" id="ghost-ok">Import</button>
+      <button value="cancel" class="btn" formnovalidate>Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="import-dialog" class="import-dialog">
   <form method="dialog">
     <h2 id="import-title">Import</h2>
@@ -376,7 +397,7 @@
 </dialog>
 
 <input type="file" id="file-picker" accept="image/*" multiple hidden>
-<input type="file" id="import-picker" accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain" multiple hidden>
+<input type="file" id="import-picker" accept=".md,.markdown,.mdown,.mkd,.txt,.json,text/markdown,text/plain,application/json" multiple hidden>
 <div class="drop-hint" id="drop-hint" hidden><div><strong>Drop to import</strong><span id="drop-where"></span></div></div>
 
 <script src="/lib/markdown.js"></script>
@@ -385,5 +406,6 @@
 <script src="/quotes.js"></script>
 <script src="/social.js"></script>
 <script src="/home.js"></script>
+<script src="/ghost-import.js"></script>
 </body>
 </html>

@@ -345,6 +345,41 @@ async function imagesApi(req, res, url) {
   throw httpError(405, 'Method not allowed');
 }
 
+// POST /api/images/fetch { url } — downloads a web image into /images (used when
+// importing from Ghost). Downloading the same image again reuses the saved copy.
+async function fetchImage(req, res) {
+  const { url } = await readJson(req);
+  let src;
+  try { src = new URL(String(url || '')); } catch { throw httpError(400, 'Not a web address'); }
+  if (!/^https?:$/.test(src.protocol)) throw httpError(400, 'Only http and https images can be downloaded');
+  // Ghost serves resized copies at /content/images/size/w1200/…; fetch the original.
+  src.pathname = src.pathname.replace(/\/content\/images\/size\/[^/]+\//, '/content/images/');
+  let response;
+  try {
+    response = await fetch(src.href, { redirect: 'follow', signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh) DBWriter/1.0' } });
+  } catch (err) {
+    throw httpError(502, `Couldn’t download ${src.href}: ${err.cause?.code || err.message}`);
+  }
+  if (!response.ok) throw httpError(502, `Couldn’t download ${src.href} (HTTP ${response.status})`);
+  const type = (response.headers.get('content-type') || '').split(';')[0].trim();
+  const data = Buffer.from(await response.arrayBuffer());
+  if (!data.length || data.length > MAX_IMAGE) throw httpError(415, `${src.href} is empty or too large`);
+  // Name it after the path (Ghost's /2024/03/photo.jpg → 2024-03-photo.jpg) so it's recognisable.
+  const parts = decodeURIComponent(src.pathname).split('/').filter(Boolean);
+  let name = parts.slice(-3).join('-').replace(/^content-images-/, '').replace(/^images-/, '');
+  if (!store.IMAGE_EXT.test(name)) {
+    if (!IMAGE_TYPES[type]) throw httpError(415, `${src.href} isn’t an image`);
+    name = `${name.replace(/\.[^.]*$/, '') || 'image'}${IMAGE_TYPES[type]}`;
+  }
+  name = name.replace(/[^\w@.-]+/g, '-').replace(/^[-.]+/, '').slice(-120) || `image${IMAGE_TYPES[type] || '.jpg'}`;
+  await fsp.mkdir(store.IMAGES, { recursive: true });
+  const existing = await fsp.readFile(path.join(store.IMAGES, name)).catch(() => null);
+  if (existing && existing.equals(data)) return json(res, 200, { name, path: `../images/${name}`, reused: true });
+  const finalName = await store.uniqueImageName(name);
+  await fsp.writeFile(path.join(store.IMAGES, finalName), data, { flag: 'wx' });
+  return json(res, 201, { name: finalName, path: `../images/${finalName}` });
+}
+
 // ---------------------------------------------------------------------------
 // Static files
 
@@ -383,6 +418,7 @@ const server = http.createServer(async (req, res) => {
       const coll = store.collection(parts[1]);
       if (coll && parts.length <= 5) return await documentsApi(req, res, coll, parts[2], parts[3], parts[4]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
+      if (parts[1] === 'images' && parts[2] === 'fetch' && parts.length === 3 && req.method === 'POST') return await fetchImage(req, res);
       if (parts[1] === 'suggest' && parts.length === 2 && req.method === 'POST') {
         return json(res, 200, await suggest(await readJson(req)));
       }

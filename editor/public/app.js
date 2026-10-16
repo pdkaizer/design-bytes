@@ -1521,6 +1521,9 @@
   const MAX_IMPORT = 5 * 1024 * 1024;
 
   async function importFiles(files) {
+    // A Ghost export (.json) brings in published Design Bytes posts as articles.
+    const ghost = [...files].find((f) => /\.json$/i.test(f.name) || f.type === 'application/json');
+    if (ghost) { window.dbw.importGhost(ghost); return; }
     const kind = state.view;
     const wanted = [...files].filter((f) => IMPORTABLE.test(f.name) || f.type === 'text/markdown');
     const skipped = files.length - wanted.length;
