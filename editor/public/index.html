@@ -21,6 +21,7 @@
       <button data-view="articles" aria-pressed="true">Articles <span class="count"></span></button>
       <button data-view="thoughts" aria-pressed="false">Thoughts <span class="count"></span></button>
       <button data-view="notes" aria-pressed="false">Notes <span class="count"></span></button>
+      <button data-view="journal" aria-pressed="false">Journal <span class="count"></span></button>
       <button data-view="links" aria-pressed="false">Links <span class="count"></span></button>
       <button data-view="quotes" aria-pressed="false">Quotes <span class="count"></span></button>
       <button data-view="social" aria-pressed="false">Social <span class="count"></span></button>
@@ -291,7 +292,7 @@
 <main class="home" id="home" aria-label="Home">
   <header class="home-head">
     <div class="home-brand"><img src="/images/db-icon@2x.png" alt="DB" width="36" height="36"><h1>Writer</h1></div>
-    <input id="home-search" type="search" placeholder="Search everything — articles, thoughts, notes, links, quotes" aria-label="Search everything">
+    <input id="home-search" type="search" placeholder="Search everything — articles, thoughts, notes, journal, links, quotes" aria-label="Search everything">
     <button class="icon-btn import-btn" id="home-import" title="Import Markdown files as articles" aria-label="Import"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.5V3.5M6.5 7 10 3.5 13.5 7"/><path d="M3 12.5v2A2.5 2.5 0 0 0 5.5 17h9a2.5 2.5 0 0 0 2.5-2.5v-2"/></svg></button>
     <div class="menu-wrap">
       <button class="btn primary" id="home-new" aria-haspopup="menu" aria-expanded="false">New ▾</button>
@@ -299,6 +300,7 @@
         <button role="menuitem" data-new="articles">Article</button>
         <button role="menuitem" data-new="thoughts">Thought for peterkaizer.com</button>
         <button role="menuitem" data-new="notes">Quick note</button>
+        <button role="menuitem" data-new="journal">Today’s journal entry</button>
         <hr>
         <button role="menuitem" data-new="link">Link</button>
         <button role="menuitem" data-new="quote">Quote</button>

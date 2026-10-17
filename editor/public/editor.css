@@ -129,8 +129,10 @@ body.no-sidebar .sidebar, body.focus .sidebar { visibility: hidden; }
 }
 .drop-hint strong { font-size: 18px; }
 .drop-hint span { color: var(--muted); }
-.view-tabs.seg { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; }
-.view-tabs.seg button { grid-column: span 2; padding: 4px 3px; font-size: 12px; white-space: nowrap; }
+.view-tabs.seg { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; }
+/* Three tabs on the first row, four (shorter names) on the second. */
+.view-tabs.seg button { grid-column: span 3; padding: 4px 2px; font-size: 12px; white-space: nowrap; }
+.view-tabs.seg button:nth-child(-n+3) { grid-column: span 4; }
 .view-tabs .count { margin-left: 0; font-size: 11px; }
 .view-tabs .count { margin-left: 2px; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
 
@@ -147,7 +149,7 @@ body[data-kind="thoughts"] .copy-md { display: none !important; }
 .publish-btn svg { width: 15px; height: 15px; }
 .publish-btn[disabled] { opacity: 0.6; cursor: progress; }
 
-body[data-kind="notes"] :is(.stage, .copy-md, #notes-btn, #links-btn, #quotes-btn, .notes-panel, #chip-notes, [data-cmd="tonotes"]) { display: none !important; }
+body:is([data-kind="notes"], [data-kind="journal"]) :is(.stage, .copy-md, #notes-btn, #links-btn, #quotes-btn, .notes-panel, #chip-notes, [data-cmd="tonotes"]) { display: none !important; }
 
 #search {
   flex: 1;
@@ -255,7 +257,7 @@ body.empty .stage { display: none; }
 body.has-pubdate:not(.empty) .pubdate { display: inline-flex; }
 .pubdate input { border: 0; outline: 0; background: transparent; color: var(--text); font: 600 12.5px var(--ui); }
 .pubdate:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-body[data-kind="notes"] .pubdate { display: none !important; }
+body:is([data-kind="notes"], [data-kind="journal"]) .pubdate { display: none !important; }
 
 .copy-md { display: none; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: 12.5px; }
 .copy-md svg { width: 15px; height: 15px; }

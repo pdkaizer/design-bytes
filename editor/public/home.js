@@ -8,7 +8,7 @@
   const body = document.body;
 
   const STATUS = { backlog: 'Backlog', editing: 'Editing', final: 'Final', published: 'Published' };
-  const KIND = { articles: 'Article', thoughts: 'Thought', notes: 'Quick note' };
+  const KIND = { articles: 'Article', thoughts: 'Thought', notes: 'Quick note', journal: 'Journal' };
   const H = { links: [], quotes: [], social: [], stats: null, activity: null };
   const NETS = { linkedin: 'LinkedIn', x: 'X', bluesky: 'Bluesky', mastodon: 'Mastodon', instagram: 'Instagram' };
   const POST_STATUS = { draft: 'Draft', ready: 'Ready', posted: 'Posted' };
@@ -160,11 +160,12 @@
   }
 
   function renderContinue() {
-    const { articles, thoughts, notes } = dbw.lists();
+    const { articles, thoughts, notes, journal } = dbw.lists();
     const recent = [
       ...articles.map((d) => ({ d, kind: 'articles' })),
       ...thoughts.map((d) => ({ d, kind: 'thoughts' })),
       ...notes.map((d) => ({ d, kind: 'notes' })),
+      ...journal.map((d) => ({ d, kind: 'journal' })),
     ].sort((a, b) => b.d.mtime - a.d.mtime).slice(0, 4);
     $('#home-continue').hidden = !recent.length;
     $('#continue-row').replaceChildren(...recent.map(({ d, kind }) => h('button', {
@@ -187,13 +188,23 @@
     }, h('span', { class: 't' }, d.title), h('span', { class: 'm' }, docMeta(d, kind))))));
   }
 
+  // Whether today's entry is written yet, with a button that opens (or starts) it.
+  function journalToday(journal) {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const today = journal.find((e) => e.slug === `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`);
+    return h('p', { class: 'home-empty journal-today' },
+      today ? `Today: ${num(today.words)} words.` : 'Nothing for today yet.', ' ',
+      h('button', { onclick: () => dbw.newDoc('journal') }, today ? 'Keep writing' : 'Write today’s entry'));
+  }
+
   function statusChips(items) {
     const counts = Object.keys(STATUS).map((s) => [s, items.filter((d) => d.status === s).length]).filter(([, n]) => n);
     return counts.length ? h('div', { class: 'chips' }, ...counts.map(([s, n]) => h('span', { class: 'badge tag-chip', 'data-status': s }, `${STATUS[s]} ${n}`))) : null;
   }
 
   function renderGrid() {
-    const { articles, thoughts, notes } = dbw.lists();
+    const { articles, thoughts, notes, journal } = dbw.lists();
     const byRecent = (list) => [...list].sort((a, b) => b.mtime - a.mtime);
     // Drafts first (what you're working on), then the rest.
     const working = (list) => byRecent(list).sort((a, b) => (a.status === 'published') - (b.status === 'published'));
@@ -204,6 +215,8 @@
         statusChips(thoughts), docList('thoughts', working(thoughts).slice(0, 6), 'No thoughts yet.')),
       card('Quick notes', notes.length, () => dbw.showList('notes'),
         docList('notes', byRecent(notes).slice(0, 5), 'Nothing jotted down yet.')),
+      card('Journal', journal.length, () => dbw.showList('journal'),
+        journalToday(journal), docList('journal', [...journal].sort((a, b) => (a.slug < b.slug ? 1 : -1)).slice(0, 5), 'No entries yet.')),
       card('Links', H.links.length, () => dbw.setView('links'),
         H.links.length
           ? h('ul', { class: 'home-list' }, ...H.links.slice(0, 5).map((l) => h('li', {}, h('a', {
@@ -236,11 +249,11 @@
     if (!q) return;
     const words = q.split(/\s+/);
     const hit = (...fields) => { const text = fields.join(' ').toLowerCase(); return words.every((w) => text.includes(w)); };
-    const { articles, thoughts, notes } = dbw.lists();
+    const { articles, thoughts, notes, journal } = dbw.lists();
     const groups = [];
-    for (const [kind, list] of [['articles', articles], ['thoughts', thoughts], ['notes', notes]]) {
+    for (const [kind, list] of [['articles', articles], ['thoughts', thoughts], ['notes', notes], ['journal', journal]]) {
       const found = list.filter((d) => hit(d.title, d.excerpt, d.slug, d.category));
-      if (found.length) groups.push(card(kind === 'notes' ? 'Quick notes' : KIND[kind] + 's', found.length, null, docList(kind, found.slice(0, 20), '')));
+      if (found.length) groups.push(card({ notes: 'Quick notes', journal: 'Journal' }[kind] || KIND[kind] + 's', found.length, null, docList(kind, found.slice(0, 20), '')));
     }
     const links = H.links.filter((l) => hit(l.title, l.url, l.site, l.description, l.note, (l.tags || []).join(' ')));
     if (links.length) {

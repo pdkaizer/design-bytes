@@ -1,7 +1,7 @@
 'use strict';
 
 // File-system access. Documents live in collections — articles in /articles,
-// thoughts (peterkaizer.com posts) in /thoughts and quick notes in /quick-notes — as <slug>.md, each with its own .trash and
+// thoughts (peterkaizer.com posts) in /thoughts, quick notes in /quick-notes and journal entries in /journal — as <slug>.md, each with its own .trash and
 // .history. Images live in /images and are referenced as ../images/<name>.
 
 const fs = require('fs');
@@ -13,6 +13,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const ARTICLES = path.join(ROOT, 'articles');
 const NOTES = path.join(ROOT, 'quick-notes');
 const THOUGHTS = path.join(ROOT, 'thoughts'); // drafts of posts for peterkaizer.com
+const JOURNAL = path.join(ROOT, 'journal'); // one entry per day, named by date
 const IMAGES = path.join(ROOT, 'images');
 const TRASH = path.join(ARTICLES, '.trash');
 
@@ -45,10 +46,10 @@ async function writeAtomic(file, data) {
 
 // A folder of Markdown documents.
 function collection(kind) {
-  const dir = { articles: ARTICLES, thoughts: THOUGHTS, notes: NOTES }[kind];
+  const dir = { articles: ARTICLES, thoughts: THOUGHTS, notes: NOTES, journal: JOURNAL }[kind];
   if (!dir) return null;
   const file = (slug) => path.join(dir, `${slug}.md`);
-  const isNote = kind === 'notes';
+  const isNote = kind === 'notes' || kind === 'journal'; // no title, status or slug in front matter
 
   async function read(slug) {
     const [content, stat] = await Promise.all([fsp.readFile(file(slug), 'utf8'), fsp.stat(file(slug))]);
@@ -61,7 +62,9 @@ function collection(kind) {
     const docs = await Promise.all(names.map(async (name) => {
       const { slug, content, mtime } = await read(name.slice(0, -3));
       const { words, minutes } = md.stats(content);
-      const title = (isNote ? md.displayTitle(content) : md.title(content)) || (isNote ? 'Untitled note' : slug);
+      const title = kind === 'journal'
+        ? md.dayTitle(slug) || md.displayTitle(content) || slug
+        : (isNote ? md.displayTitle(content) : md.title(content)) || (isNote ? 'Untitled note' : slug);
       const added = md.created(content); // { ms, hasTime } from created: in the front matter
       const base = { slug, title, words, mtime, created: added?.ms ?? null, createdHasTime: !!added?.hasTime, published: md.published(content) };
       if (isNote) return { ...base, excerpt: md.excerpt(content, 140) };
@@ -109,7 +112,7 @@ async function uniqueImageName(name) {
 }
 
 module.exports = {
-  ROOT, ARTICLES, THOUGHTS, NOTES, IMAGES, TRASH, IMAGE_EXT,
+  ROOT, ARTICLES, THOUGHTS, NOTES, JOURNAL, IMAGES, TRASH, IMAGE_EXT,
   isSlug, articlePath, exists, slugify, writeAtomic, collection,
   readArticle, listArticles, listImages, uniqueImageName,
 };

@@ -8,7 +8,7 @@ const store = require('./store');
 const history = require('./history');
 
 const DAY = 24 * 60 * 60 * 1000;
-const KINDS = ['articles', 'thoughts', 'notes'];
+const KINDS = ['articles', 'thoughts', 'notes', 'journal'];
 
 const dayKey = (ms) => {
   const d = new Date(ms);

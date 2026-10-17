@@ -34,6 +34,7 @@
   const state = {
     articles: [],
     notes: [], // quick notes
+    journal: [], // journal entries
     thoughts: [], // posts for peterkaizer.com
     view: 'articles', // which list the sidebar shows
     doc: null, // { slug, saved, mtime }
@@ -98,22 +99,26 @@
     return 'just now';
   }
 
-  // Two kinds of document: articles (articles/) and quick notes (quick-notes/).
+  // The kinds of document, each in its own folder.
   const KINDS = {
     articles: { folder: 'articles', label: 'Articles', search: 'Search articles', empty: 'No articles yet' },
     thoughts: { folder: 'thoughts', label: 'Thoughts', search: 'Search thoughts', empty: 'No thoughts yet — New starts one for peterkaizer.com' },
     notes: { folder: 'quick-notes', label: 'Quick notes', search: 'Search quick notes', empty: 'No quick notes yet' },
+    journal: { folder: 'journal', label: 'Journal', search: 'Search journal', empty: 'No entries yet — New starts today’s' },
   };
+  // Quick notes and journal entries are plain: no title, slug, status, notes panel or publishing.
+  const isPlain = (kind) => kind === 'notes' || kind === 'journal';
   const LIBRARY = ['links', 'quotes', 'social']; // sidebar tabs that show a library page instead of the editor
-  const listOf = (kind) => ({ notes: state.notes, thoughts: state.thoughts }[kind] || state.articles);
+  const listOf = (kind) => ({ notes: state.notes, thoughts: state.thoughts, journal: state.journal }[kind] || state.articles);
   // How saved links refer to a document: "slug" for articles, "thoughts/slug" for thoughts.
   const docKey = (doc = state.doc) => (doc?.kind === 'thoughts' ? `thoughts/${doc.slug}` : doc?.slug);
   const docUrl = (doc = state.doc) => `/api/${doc.kind}/${enc(doc.slug)}`;
-  const hashFor = (kind, slug) => (kind === 'notes' ? `#note/${slug}` : `#${slug}`);
+  const hashFor = (kind, slug) => (kind === 'notes' ? `#note/${slug}` : kind === 'journal' ? `#journal/${slug}` : `#${slug}`);
   const isOpen = (kind, slug) => state.doc?.kind === kind && state.doc?.slug === slug;
   function parseHash() {
     const h = decodeURIComponent(location.hash.slice(1));
     if (!h || h === 'home' || LIBRARY.includes(h)) return null;
+    if (h.startsWith('journal/')) return { kind: 'journal', slug: h.slice(8) };
     return h.startsWith('note/') ? { kind: 'notes', slug: h.slice(5) } : { kind: 'articles', slug: h };
   }
 
@@ -128,7 +133,7 @@
   }
 
   async function loadList() {
-    [state.articles, state.thoughts, state.notes] = await Promise.all(['articles', 'thoughts', 'notes'].map((k) => api('GET', `/api/${k}`)));
+    [state.articles, state.thoughts, state.notes, state.journal] = await Promise.all(['articles', 'thoughts', 'notes', 'journal'].map((k) => api('GET', `/api/${k}`)));
     renderList();
   }
 
@@ -147,7 +152,7 @@
     if (state.doc && LIBRARY.includes(location.hash.slice(1))) history.replaceState(null, '', hashFor(state.doc.kind, state.doc.slug));
     el.search.placeholder = KINDS[view].search;
     el.search.setAttribute('aria-label', KINDS[view].search);
-    $('#new').title = view === 'notes' ? 'New quick note' : 'New article';
+    $('#new').title = { notes: 'New quick note', journal: 'Today’s journal entry', thoughts: 'New thought' }[view] || 'New article';
     renderList();
   }
 
@@ -185,7 +190,7 @@
 
   function renderList() {
     const view = state.view;
-    const notes = view === 'notes';
+    const notes = isPlain(view);
     document.querySelectorAll('#view-tabs button').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.view === view));
       if (!LIBRARY.includes(b.dataset.view)) b.querySelector('.count').textContent = listOf(b.dataset.view).length;
@@ -220,7 +225,10 @@
       meta.className = 'item-meta';
       const added = a.created ? addedLabel(a.created, notes && a.createdHasTime) : null; // notes show the time too
       btn.title = [a.created && `Added ${addedLabel(a.created, a.createdHasTime, true)}`, `Last edited ${ago(a.mtime)}`].filter(Boolean).join(' · ');
-      if (notes) {
+      if (view === 'journal') {
+        const gist = (a.excerpt || '').length > 60 ? `${a.excerpt.slice(0, 60).replace(/\s+\S*$/, '')}…` : a.excerpt;
+        meta.textContent = [`${a.words.toLocaleString()} words`, gist].filter(Boolean).join(' · ');
+      } else if (notes) {
         meta.textContent = `${added || ago(a.mtime)} · ${a.words.toLocaleString()} words`;
       } else {
         const badge = document.createElement('span');
@@ -400,10 +408,11 @@
     const run = () => {
       if (!state.doc) return;
       const text = ed.value;
-      if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text, { withTitle: state.doc.kind !== 'notes' });
+      if (body.dataset.mode !== 'write' || now) el.preview.innerHTML = md.render(text, { withTitle: !isPlain(state.doc.kind) });
 
-      const isNote = state.doc.kind === 'notes';
-      const title = isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
+      const isNote = isPlain(state.doc.kind);
+      const title = state.doc.kind === 'journal' ? (md.dayTitle(state.doc.slug) || md.displayTitle(text) || state.doc.slug)
+        : isNote ? (md.displayTitle(text) || 'Untitled note') : (md.title(text) || state.doc.slug);
       el.title.textContent = title;
       const added = md.created(text);
       const pubMs = isNote ? null : md.published(text);
@@ -764,7 +773,7 @@
   const pubInput = $('#pubdate-input');
   function syncPubDate(text) {
     const ms = md.published(text);
-    const show = state.doc && state.doc.kind !== 'notes' && (ms != null || md.status(text) === 'published');
+    const show = state.doc && !isPlain(state.doc.kind) && (ms != null || md.status(text) === 'published');
     body.classList.toggle('has-pubdate', !!show);
     const value = ms != null ? isoDay(ms) : '';
     if (document.activeElement !== pubInput && pubInput.value !== value) pubInput.value = value;
@@ -789,7 +798,7 @@
     clearTimeout(slugTimer);
     slugTimer = setTimeout(() => {
       const doc = state.doc;
-      if (!doc || doc.kind === 'notes' || state.renaming || state.conflict) return;
+      if (!doc || isPlain(doc.kind) || state.renaming || state.conflict) return;
       const fm = md.frontMatter(ed.value);
       const want = String(fm.data.slug || '').trim();
       if (!want || want === doc.slug || want === state.slugRefused) return;
@@ -1272,7 +1281,7 @@
       legend.textContent = '';
       const article = document.createElement('article');
       article.className = 'article';
-      article.innerHTML = md.render(hist.content, { withTitle: state.doc.kind !== 'notes' });
+      article.innerHTML = md.render(hist.content, { withTitle: !isPlain(state.doc.kind) });
       view.replaceChildren(article);
       return;
     }
@@ -1534,10 +1543,14 @@
     for (const file of wanted) {
       if (file.size > MAX_IMPORT) { failed.push(`${file.name} (larger than 5 MB)`); continue; }
       const content = await file.text();
-      const title = md.title(content) || (kind === 'notes' ? md.displayTitle(content) : '');
+      const title = md.title(content) || (isPlain(kind) ? md.displayTitle(content) : '');
       const stem = file.name.replace(/\.[^.]*$/, '');
       const fileDate = md.published(content);
-      items.push({ file, content, title, name: slugifyTitle(title || stem) || slugifyTitle(stem) || 'untitled', date: fileDate != null ? isoDay(fileDate) : '' });
+      // A journal entry is named for its day: its date:, created:, a date in the file name, or today.
+      const day = kind === 'journal'
+        ? (fileDate ?? md.created(content)?.ms) != null ? isoDay(fileDate ?? md.created(content).ms) : (stem.match(/\d{4}-\d{2}-\d{2}/) || [isoDay(Date.now())])[0]
+        : null;
+      items.push({ file, content, title, name: day || slugifyTitle(title || stem) || slugifyTitle(stem) || 'untitled', date: fileDate != null ? isoDay(fileDate) : '' });
     }
     if (items.length && !(await askImportNames(items, kind))) return; // cancelled
 
@@ -1556,10 +1569,10 @@
       await loadList();
       load(last, kind);
     }
-    const what = kind === 'notes' ? 'quick note' : 'article';
+    const what = { notes: 'quick notes', journal: 'journal entries' }[kind] || 'articles';
     const parts = [];
-    if (done === 1) parts.push(`Imported “${el.title.textContent}”${kind !== 'notes' ? ' into Backlog' : ''}`);
-    else if (done) parts.push(`Imported ${done} ${what}s`);
+    if (done === 1) parts.push(`Imported “${el.title.textContent}”${!isPlain(kind) ? ' into Backlog' : ''}`);
+    else if (done) parts.push(`Imported ${done} ${what}`);
     if (failed.length) parts.push(`couldn’t import ${failed.join(', ')}`);
     if (skipped) parts.push(`skipped ${skipped} file${skipped === 1 ? '' : 's'} that ${skipped === 1 ? 'isn’t' : 'aren’t'} Markdown`);
     toast(parts.join(' · '));
@@ -1573,10 +1586,12 @@
     $('#import-title').textContent = items.length === 1 ? 'Import file' : `Import ${items.length} files`;
     $('#import-sub').textContent = kind === 'notes'
       ? 'They’ll be added as quick notes. Change a file name if you like.'
+      : kind === 'journal'
+      ? 'They’ll be added as journal entries, named by their date. Change a name if you like.'
       : 'They’ll be added as articles in Backlog. Change a file name if you like.';
     $('#import-ok').textContent = items.length === 1 ? 'Import' : `Import ${items.length}`;
     // Pieces published before they came into DB Writer keep their real publish date.
-    const canPublish = kind !== 'notes';
+    const canPublish = !isPlain(kind);
     const already = h('input', { type: 'checkbox' });
     const alreadyRow = canPublish ? h('label', { class: 'import-already' }, already,
       h('span', {}, h('b', {}, 'Already published'), ' — mark as Published and keep the date each one went out')) : null;
@@ -1663,7 +1678,7 @@
   let dragDepth = 0;
   function showDropHint(on) {
     $('#drop-hint').hidden = !on;
-    $('#drop-where').textContent = state.view === 'notes' ? 'as quick notes' : 'as articles in Backlog';
+    $('#drop-where').textContent = { notes: 'as quick notes', journal: 'as journal entries' }[state.view] || 'as articles in Backlog';
   }
   document.addEventListener('dragenter', (e) => {
     if (!hasFiles(e)) return;
@@ -1703,7 +1718,7 @@
     renderArtLinks();
   }
 
-  const linksForDoc = () => (state.doc && state.doc.kind !== 'notes'
+  const linksForDoc = () => (state.doc && !isPlain(state.doc.kind)
     ? artLinks.all.filter((l) => (l.articles || []).includes(docKey()))
     : []);
 
@@ -1853,7 +1868,7 @@
     $('#art-links').scrollIntoView({ block: 'start' });
   });
   window.addEventListener('dbw:links-changed', (e) => { if (e.detail !== 'article') loadArtLinks(); });
-  window.addEventListener('focus', () => { if (state.doc && state.doc.kind !== 'notes') loadArtLinks(); });
+  window.addEventListener('focus', () => { if (state.doc && !isPlain(state.doc.kind)) loadArtLinks(); });
 
   // ---------------------------------------------------------------------------
   // Thoughts: category picker and publishing to peterkaizer.com
@@ -1957,7 +1972,7 @@
     try { artQuotes.all = await api('GET', '/api/quotes'); } catch { /* optional */ }
     renderArtQuotes();
   }
-  const quotesForDoc = () => (state.doc && state.doc.kind !== 'notes'
+  const quotesForDoc = () => (state.doc && !isPlain(state.doc.kind)
     ? artQuotes.all.filter((q) => (q.articles || []).includes(docKey()))
     : []);
 
@@ -2098,7 +2113,7 @@
     $('#art-quotes').scrollIntoView({ block: 'start' });
   });
   window.addEventListener('dbw:quotes-changed', (e) => { if (e.detail !== 'article') loadArtQuotes(); });
-  window.addEventListener('focus', () => { if (state.doc && state.doc.kind !== 'notes') loadArtQuotes(); });
+  window.addEventListener('focus', () => { if (state.doc && !isPlain(state.doc.kind)) loadArtQuotes(); });
 
   // ---------------------------------------------------------------------------
   // Images: paste, drop or pick → saved to /images → ![](../images/…)
@@ -2187,6 +2202,21 @@
   }
 
   async function newDoc() {
+    if (state.view === 'journal') {
+      // One entry a day: New opens today's, starting it if it isn't there yet.
+      await save();
+      try {
+        const entry = await api('POST', '/api/journal', {});
+        await loadList();
+        load(entry, 'journal');
+        if (body.dataset.mode === 'preview') setMode('write');
+        ed.focus();
+        ed.setSelectionRange(ed.value.length, ed.value.length);
+      } catch (err) {
+        toast(`Couldn’t open today’s entry: ${err.message}`);
+      }
+      return;
+    }
     if (state.view === 'notes') {
       // Quick notes start straight away: no title needed, the first line becomes one.
       await save();
@@ -2224,7 +2254,7 @@
   async function renameDoc() {
     const doc = state.doc;
     const folder = KINDS[doc.kind].folder;
-    const heading = doc.kind === 'notes' ? md.displayTitle(ed.value) : md.title(ed.value);
+    const heading = doc.kind === 'journal' ? doc.slug : doc.kind === 'notes' ? md.displayTitle(ed.value) : md.title(ed.value);
     const suggested = heading ? slugifyTitle(heading) || doc.slug : doc.slug;
     const to = await ask({
       title: 'Rename file', label: 'File name', value: suggested,
@@ -2248,13 +2278,13 @@
       doc.mtime = a.mtime;
       doc.saved = a.content;
       // The server keeps slug: in step with the file name; match it in the editor.
-      if (doc.kind !== 'notes') setMetaInEditor('slug', a.slug, { after: 'title' });
+      if (!isPlain(doc.kind)) setMetaInEditor('slug', a.slug, { after: 'title' });
       prefs.set('last', { kind: doc.kind, slug: a.slug });
       history.replaceState(null, '', hashFor(doc.kind, a.slug));
       await loadList();
       refresh(true);
       if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
-      if (renamed && doc.kind !== 'notes') { loadArtLinks(); loadArtQuotes(); } // its links and quotes followed it
+      if (renamed && !isPlain(doc.kind)) { loadArtLinks(); loadArtQuotes(); } // its links and quotes followed it
     } catch (err) {
       if (err.status === 409) {
         state.slugRefused = to;
@@ -2320,7 +2350,7 @@
   }
 
   async function copyHtml() {
-    toast(await copyText(md.render(ed.value, { withTitle: state.doc.kind !== 'notes' })) ? 'Article HTML copied' : 'Clipboard not available');
+    toast(await copyText(md.render(ed.value, { withTitle: !isPlain(state.doc.kind) })) ? 'Article HTML copied' : 'Clipboard not available');
   }
 
   let copiedTimer = 0;
@@ -2509,7 +2539,7 @@
     const savedView = prefs.get('view', 'articles');
     const askedFor = parseHash(); // a link straight to an article or note opens it instead
     const startedOnLibrary = LIBRARY.find((v) => location.hash === `#${v}`);
-    state.view = savedView === 'notes' ? 'notes' : 'articles';
+    state.view = ['notes', 'journal'].includes(savedView) ? savedView : 'articles';
     await loadList();
     setView(state.view);
     let last = prefs.get('last', null);
@@ -2533,7 +2563,7 @@
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),
       ...state.thoughts.map((t) => ({ ...t, slug: `thoughts/${t.slug}`, kind: 'thoughts' })),
     ],
-    lists: () => ({ articles: state.articles, thoughts: state.thoughts, notes: state.notes }),
+    lists: () => ({ articles: state.articles, thoughts: state.thoughts, notes: state.notes, journal: state.journal }),
     loadList,
     goHome,
     openDoc: (kind, slug) => { if (state.view !== kind) setView(kind); openDoc(kind, slug); if (isOpen(kind, slug)) { body.dataset.page = 'editor'; applyDrawer(); history.replaceState(null, '', hashFor(kind, slug)); refresh(true); } },

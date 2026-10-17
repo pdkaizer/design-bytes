@@ -252,3 +252,10 @@ test('published: reads the date: line', () => {
   assert.equal(md.published('---\ndate: 2025-08-05T09:30:00.000Z\n---\n'), Date.parse('2025-08-05T09:30:00.000Z'));
   assert.equal(md.published('---\nstatus: published\n---\n'), null);
 });
+
+test('dayTitle names a journal entry for its day', () => {
+  assert.equal(md.dayTitle('2026-10-16'), 'Friday, October 16, 2026');
+  assert.equal(md.dayTitle('2026-10-16-2'), 'Friday, October 16, 2026');
+  assert.equal(md.dayTitle('2026-02-30'), null);
+  assert.equal(md.dayTitle('my-entry'), null);
+});

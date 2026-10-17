@@ -650,6 +650,16 @@
     return text.length > 80 ? `${text.slice(0, 80).replace(/\s+\S*$/, '')}…` : text;
   }
 
+  // A journal entry is named for its day (2026-10-16, or 2026-10-16-2 for a second one):
+  // "Friday, October 16, 2026". Null for any other name.
+  function dayTitle(slug) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:-\d+)?$/.exec(String(slug || ''));
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    if (d.getMonth() !== +m[2] - 1) return null;
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
   function stats(src) {
     const text = articleBody(src);
     const prose = text
@@ -998,7 +1008,7 @@
   }
 
   return {
-    render, inline, title, displayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
+    render, inline, title, displayTitle, dayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
     frontMatter, setMeta, removeMeta, liftTitle, status, created, published, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, quoteMarkdown, STATUSES, DEFAULT_STATUS,
   };
 });

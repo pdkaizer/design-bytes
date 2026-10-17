@@ -87,10 +87,10 @@ function isTrusted(req) {
 // ---------------------------------------------------------------------------
 // API
 
-// /api/articles/… and /api/notes/… — the same API over two folders.
+// /api/articles/…, /api/thoughts/…, /api/notes/… and /api/journal/… — the same API over each folder.
 async function documentsApi(req, res, coll, slug, action, versionId) {
   const method = req.method;
-  const isNote = coll.kind === 'notes';
+  const isNote = coll.kind === 'notes' || coll.kind === 'journal'; // plain documents: no title, slug or status
 
   if (!slug) {
     if (method === 'GET') return json(res, 200, await coll.list());
@@ -120,6 +120,13 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
             if (/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) content = md.setMeta(content, 'date', date, { after: 'status' });
           }
         }
+      } else if (coll.kind === 'journal') {
+        // One entry a day, named by its date: New opens today's if it's already there.
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        slugged = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        if (await store.exists(coll.file(slugged))) return json(res, 200, await coll.read(slugged));
+        content = '';
       } else if (isNote) {
         // Quick notes are named by when they were made: 2026-10-04-1532.md
         const d = new Date();
@@ -447,6 +454,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  articles:    ${path.relative(process.cwd(), store.ARTICLES) || '.'}/`);
   console.log(`  thoughts:    ${path.relative(process.cwd(), store.THOUGHTS) || '.'}/  →  publishes to ${process.env.THOUGHTS_SITE || '(set THOUGHTS_SITE in .env)'}`);
   console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
+  console.log(`  journal:     ${path.relative(process.cwd(), store.JOURNAL) || '.'}/`);
   console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
   console.log(`  quotes:      ${path.relative(process.cwd(), quotes.DIR) || '.'}/`);
   console.log(`  social:      ${path.relative(process.cwd(), social.DIR) || '.'}/`);
