@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { api, toast, prefs } = window.dbw;
+  const { api, toast, prefs, social } = window.dbw;
   const $ = (sel, root = document) => root.querySelector(sel);
   const body = document.body;
   const pieces = () => window.dbw.articles(); // articles and thoughts: [{ slug (key), title, status, kind }]
@@ -303,7 +303,7 @@
       prefill,
       onSave: async (data) => {
         try {
-          const post = await api('POST', '/api/social', data);
+          const post = await social.add(data);
           S.items.unshift(post);
           changed();
           updateCount();
@@ -325,7 +325,7 @@
   // Loading & rendering the list
 
   async function reload() {
-    S.items = await api('GET', '/api/social');
+    S.items = await social.list();
     S.loaded = true;
     updateCount();
   }
@@ -427,7 +427,7 @@
     const form = composer(p, {
       onSave: async (data) => {
         try {
-          Object.assign(p, await api('PATCH', `/api/social/${p.id}`, data));
+          Object.assign(p, await social.update(p.id, data));
           S.editing = null;
           changed();
           render();
@@ -480,7 +480,7 @@
     const posted = { ...(p.posted || {}) };
     if (on) posted[net] = Date.now(); else delete posted[net];
     try {
-      Object.assign(p, await api('PATCH', `/api/social/${p.id}`, { posted }));
+      Object.assign(p, await social.update(p.id, { posted }));
       changed();
       render();
       if (on && p.status === 'posted') toast('Posted everywhere it was meant for 🎉');
@@ -491,7 +491,7 @@
 
   async function remove(p) {
     try {
-      await api('DELETE', `/api/social/${p.id}`);
+      await social.remove(p.id);
       S.items = S.items.filter((x) => x.id !== p.id);
       changed();
       updateCount();
@@ -513,7 +513,7 @@
     $('#social-undo').hidden = true;
     S.undo = null;
     try {
-      await api('POST', '/api/social/restore', { post: u.post });
+      await social.restore(u.post);
       await reload();
       changed();
       render();

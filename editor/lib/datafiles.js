@@ -11,6 +11,7 @@ const { ROOT, writeAtomic } = require('./store');
 
 const FILES = {
   quotes: path.join(ROOT, 'quotes', 'quotes.json'),
+  social: path.join(ROOT, 'social', 'posts.json'),
 };
 
 const fileFor = (name) => (Object.hasOwn(FILES, name) ? FILES[name] : null);

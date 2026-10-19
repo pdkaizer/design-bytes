@@ -18,7 +18,6 @@ const links = require('./lib/links');
 const publisher = require('./lib/publish');
 const datafiles = require('./lib/datafiles');
 const { writingStats, activity } = require('./lib/stats');
-const social = require('./lib/social');
 const history = require('./lib/history');
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -190,7 +189,6 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
       await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
       const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
       if (!isNote) await links.renameArticle(key(slug), key(next)).catch((err) => console.error('links:', err));
-      if (!isNote) await social.renameArticle(key(slug), key(next)).catch((err) => console.error('social:', err));
     }
     if (!isNote) {
       // Keep the slug: line in step with the file name.
@@ -309,21 +307,6 @@ async function dataApi(req, res, name) {
   throw httpError(405, 'Method not allowed');
 }
 
-// /api/social — social media posts.
-async function socialApi(req, res, id) {
-  const method = req.method;
-  if (!id) {
-    if (method === 'GET') return json(res, 200, await social.list());
-    if (method === 'POST') return json(res, 201, await social.add(await readJson(req)));
-    throw httpError(405, 'Method not allowed');
-  }
-  if (id === 'restore' && method === 'POST') return json(res, 200, await social.restore((await readJson(req)).post));
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw httpError(400, 'Invalid post');
-  if (method === 'PATCH') return json(res, 200, await social.update(id, await readJson(req)));
-  if (method === 'DELETE') return json(res, 200, await social.remove(id));
-  throw httpError(405, 'Method not allowed');
-}
-
 async function imagesApi(req, res, url) {
   if (req.method === 'GET') return json(res, 200, await store.listImages());
   if (req.method === 'POST') {
@@ -381,7 +364,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/quotes.js'];
+const SHARED = ['/lib/markdown.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
@@ -411,7 +394,6 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === 'api') {
       if (parts[1] === 'links' && parts.length <= 4) return await linksApi(req, res, parts[2], parts[3]);
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
-      if (parts[1] === 'social' && parts.length <= 3) return await socialApi(req, res, parts[2]);
       if (parts[1] === 'stats' && parts.length === 2 && req.method === 'GET') return json(res, 200, await writingStats());
       if (parts[1] === 'activity' && parts.length === 2 && req.method === 'GET') return json(res, 200, await activity());
       if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
@@ -450,7 +432,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  journal:     ${path.relative(process.cwd(), store.JOURNAL) || '.'}/`);
   console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
   console.log(`  quotes:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.quotes)) || '.'}/`);
-  console.log(`  social:      ${path.relative(process.cwd(), social.DIR) || '.'}/`);
+  console.log(`  social:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.social)) || '.'}/`);
   console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
   if (process.argv.includes('--open')) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';

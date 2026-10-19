@@ -3,7 +3,9 @@
   'use strict';
 
   const md = window.DBMarkdown;
-  const quotes = window.DBQuotes.createQuotes(window.DBBridge); // saved quotes, read and written through the bridge
+  // Saved quotes and social posts, read and written through the bridge.
+  const quotes = window.DBQuotes.createQuotes(window.DBBridge);
+  const social = window.DBSocial.createSocial(window.DBBridge);
   const $ = (sel) => document.querySelector(sel);
   const body = document.body;
   const ed = $('#editor');
@@ -2287,8 +2289,9 @@
       refresh(true);
       if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
       if (renamed && !isPlain(doc.kind)) {
-        // Its quotes follow it (links and social posts are moved by the server).
-        await quotes.renameArticle(oldKey, docKey(doc)).catch((err) => toast(`Renamed, but couldn’t update its quotes: ${err.message}`));
+        // Its quotes and social posts follow it (links are moved by the server).
+        await Promise.all([quotes, social].map((lib) => lib.renameArticle(oldKey, docKey(doc))))
+          .catch((err) => toast(`Renamed, but couldn’t update its quotes or posts: ${err.message}`));
         loadArtLinks();
         loadArtQuotes();
       }
@@ -2564,7 +2567,7 @@
 
   // A few helpers for links.js, which runs the Links page.
   window.dbw = {
-    api, toast, prefs, ask, copyText, setView, quotes,
+    api, toast, prefs, ask, copyText, setView, quotes, social,
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

@@ -88,7 +88,8 @@ Node 22.9+ and one dependency, the Anthropic SDK (`npm install`).
 
 - `editor/lib/markdown.js` — the Markdown renderer, shared by the browser and the build
 - `editor/public/bridge.js` — the one place the page reaches outside itself (reading and saving data files); a native Mac or iOS app would provide the same calls
-- `editor/lib/quotes.js` — the rules for saved quotes, run in the page and saved through the bridge
+- `editor/lib/datastore.js` — a list of records in one data file, saved through the bridge without overwriting another tab's changes
+- `editor/lib/quotes.js`, `editor/lib/social.js` — the rules for saved quotes and social posts, run in the page
 - `editor/server.js` — local server and file API (listens on 127.0.0.1 only)
 - `editor/lib/suggest.js` — rewording suggestions via the Claude API
 - `editor/build.js` — static site build
