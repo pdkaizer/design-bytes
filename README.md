@@ -87,6 +87,8 @@ npm run build    # renders Published articles to dist/ (index + one page per art
 Node 22.9+ and one dependency, the Anthropic SDK (`npm install`).
 
 - `editor/lib/markdown.js` — the Markdown renderer, shared by the browser and the build
+- `editor/public/bridge.js` — the one place the page reaches outside itself (reading and saving data files); a native Mac or iOS app would provide the same calls
+- `editor/lib/quotes.js` — the rules for saved quotes, run in the page and saved through the bridge
 - `editor/server.js` — local server and file API (listens on 127.0.0.1 only)
 - `editor/lib/suggest.js` — rewording suggestions via the Claude API
 - `editor/build.js` — static site build

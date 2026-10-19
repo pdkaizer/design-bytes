@@ -16,7 +16,7 @@ const { renderArticle } = require('./lib/template');
 const { suggest, suggestTags } = require('./lib/suggest');
 const links = require('./lib/links');
 const publisher = require('./lib/publish');
-const quotes = require('./lib/quotes');
+const datafiles = require('./lib/datafiles');
 const { writingStats, activity } = require('./lib/stats');
 const social = require('./lib/social');
 const history = require('./lib/history');
@@ -190,7 +190,6 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
       await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
       const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
       if (!isNote) await links.renameArticle(key(slug), key(next)).catch((err) => console.error('links:', err));
-      if (!isNote) await quotes.renameArticle(key(slug), key(next)).catch((err) => console.error('quotes:', err));
       if (!isNote) await social.renameArticle(key(slug), key(next)).catch((err) => console.error('social:', err));
     }
     if (!isNote) {
@@ -296,25 +295,17 @@ async function linksApi(req, res, id, action) {
   throw httpError(404, 'Not found');
 }
 
-// /api/quotes — saved quotes and who said them.
-async function quotesApi(req, res, id) {
-  const method = req.method;
-  if (!id) {
-    if (method === 'GET') return json(res, 200, await quotes.list());
-    if (method === 'POST') {
-      try {
-        return json(res, 201, await quotes.add(await readJson(req)));
-      } catch (err) {
-        if (err.status === 409) return json(res, 409, { error: err.message, quote: err.quote });
-        throw err;
-      }
-    }
-    throw httpError(405, 'Method not allowed');
+// /api/data/<name> — whole data files the page reads and writes through the bridge.
+async function dataApi(req, res, name) {
+  if (!datafiles.fileFor(name)) throw httpError(404, 'Not found');
+  if (req.method === 'GET') return json(res, 200, await datafiles.read(name));
+  if (req.method === 'PUT') {
+    const { data, version } = await readJson(req);
+    if (!data || typeof data !== 'object') throw httpError(400, 'data must be an object');
+    const saved = await datafiles.write(name, data, version);
+    if (saved.conflict) return json(res, 409, { error: 'Changed since it was read' });
+    return json(res, 200, saved);
   }
-  if (id === 'restore' && method === 'POST') return json(res, 200, await quotes.restore((await readJson(req)).quote));
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw httpError(400, 'Invalid quote');
-  if (method === 'PATCH') return json(res, 200, await quotes.update(id, await readJson(req)));
-  if (method === 'DELETE') return json(res, 200, await quotes.remove(id));
   throw httpError(405, 'Method not allowed');
 }
 
@@ -390,12 +381,14 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
+const SHARED = ['/lib/markdown.js', '/lib/quotes.js'];
+
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
   let base = PUBLIC;
   let rel = pathname === '/' ? '/index.html' : pathname;
   if (rel.startsWith('/images/')) { base = store.IMAGES; rel = rel.slice('/images'.length); }
-  else if (rel === '/lib/markdown.js') { base = LIB; rel = '/markdown.js'; }
+  else if (SHARED.includes(rel)) { base = LIB; rel = rel.slice('/lib'.length); } // code the page shares with Node
 
   const file = path.join(base, rel);
   if (!file.startsWith(base + path.sep)) throw httpError(403, 'Forbidden');
@@ -417,7 +410,7 @@ const server = http.createServer(async (req, res) => {
 
     if (parts[0] === 'api') {
       if (parts[1] === 'links' && parts.length <= 4) return await linksApi(req, res, parts[2], parts[3]);
-      if (parts[1] === 'quotes' && parts.length <= 3) return await quotesApi(req, res, parts[2]);
+      if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
       if (parts[1] === 'social' && parts.length <= 3) return await socialApi(req, res, parts[2]);
       if (parts[1] === 'stats' && parts.length === 2 && req.method === 'GET') return json(res, 200, await writingStats());
       if (parts[1] === 'activity' && parts.length === 2 && req.method === 'GET') return json(res, 200, await activity());
@@ -456,7 +449,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
   console.log(`  journal:     ${path.relative(process.cwd(), store.JOURNAL) || '.'}/`);
   console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
-  console.log(`  quotes:      ${path.relative(process.cwd(), quotes.DIR) || '.'}/`);
+  console.log(`  quotes:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.quotes)) || '.'}/`);
   console.log(`  social:      ${path.relative(process.cwd(), social.DIR) || '.'}/`);
   console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
   if (process.argv.includes('--open')) {

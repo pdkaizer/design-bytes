@@ -3,6 +3,7 @@
   'use strict';
 
   const md = window.DBMarkdown;
+  const quotes = window.DBQuotes.createQuotes(window.DBBridge); // saved quotes, read and written through the bridge
   const $ = (sel) => document.querySelector(sel);
   const body = document.body;
   const ed = $('#editor');
@@ -1969,7 +1970,7 @@
   const quotesChanged = () => window.dispatchEvent(new CustomEvent('dbw:quotes-changed', { detail: 'article' }));
 
   async function loadArtQuotes() {
-    try { artQuotes.all = await api('GET', '/api/quotes'); } catch { /* optional */ }
+    try { artQuotes.all = await quotes.list(); } catch { /* optional */ }
     renderArtQuotes();
   }
   const quotesForDoc = () => (state.doc && !isPlain(state.doc.kind)
@@ -2024,7 +2025,7 @@
     const list = new Set(q.articles || []);
     if (attach) list.add(key); else list.delete(key);
     try {
-      const updated = await api('PATCH', `/api/quotes/${q.id}`, { articles: [...list] });
+      const updated = await quotes.update(q.id, { articles: [...list] });
       Object.assign(q, updated);
       if (!artQuotes.all.some((x) => x.id === q.id)) artQuotes.all.unshift(q);
       renderArtQuotes();
@@ -2040,7 +2041,7 @@
       hint: 'Leave it blank if you don’t know. You can add a source on the Quotes page.' });
     if (author === null) return;
     try {
-      const q = await api('POST', '/api/quotes', { text, author, articles: [docKey()] });
+      const q = await quotes.add({ text, author, articles: [docKey()] });
       artQuotes.all.unshift(q);
       renderArtQuotes();
       quotesChanged();
@@ -2274,6 +2275,7 @@
       const a = await api('POST', `${docUrl(doc)}/rename`, { to });
       if (state.doc !== doc) return;
       const renamed = a.slug !== doc.slug;
+      const oldKey = docKey(doc);
       doc.slug = a.slug;
       doc.mtime = a.mtime;
       doc.saved = a.content;
@@ -2284,7 +2286,12 @@
       await loadList();
       refresh(true);
       if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
-      if (renamed && !isPlain(doc.kind)) { loadArtLinks(); loadArtQuotes(); } // its links and quotes followed it
+      if (renamed && !isPlain(doc.kind)) {
+        // Its quotes follow it (links and social posts are moved by the server).
+        await quotes.renameArticle(oldKey, docKey(doc)).catch((err) => toast(`Renamed, but couldn’t update its quotes: ${err.message}`));
+        loadArtLinks();
+        loadArtQuotes();
+      }
     } catch (err) {
       if (err.status === 409) {
         state.slugRefused = to;
@@ -2557,7 +2564,7 @@
 
   // A few helpers for links.js, which runs the Links page.
   window.dbw = {
-    api, toast, prefs, ask, copyText, setView,
+    api, toast, prefs, ask, copyText, setView, quotes,
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

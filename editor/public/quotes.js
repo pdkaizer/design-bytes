@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { api, toast, prefs } = window.dbw;
+  const { toast, prefs, quotes } = window.dbw;
   const md = window.DBMarkdown;
   const $ = (sel, root = document) => root.querySelector(sel);
   const body = document.body;
@@ -70,7 +70,7 @@
   // Loading & rendering
 
   async function reload() {
-    Q.items = await api('GET', '/api/quotes');
+    Q.items = await quotes.list();
     Q.loaded = true;
     for (const q of Q.items) q.articles = q.articles || [];
     updateCount();
@@ -184,7 +184,7 @@
     const selected = [...q.articles];
     const save = async () => {
       try {
-        Object.assign(q, await api('PATCH', `/api/quotes/${q.id}`, { text: text.value, author: author.value, source: source.value, note: note.value, articles: selected }));
+        Object.assign(q, await quotes.update(q.id, { text: text.value, author: author.value, source: source.value, note: note.value, articles: selected }));
         Q.editing = null;
         changed();
         render();
@@ -231,7 +231,7 @@
     const btn = $('#quote-save');
     btn.disabled = true;
     try {
-      const q = await api('POST', '/api/quotes', { text, author: $('#quote-author').value, source: $('#quote-source').value, articles: addFor });
+      const q = await quotes.add({ text, author: $('#quote-author').value, source: $('#quote-source').value, articles: addFor });
       Q.items.unshift(q);
       changed();
       updateCount();
@@ -274,7 +274,7 @@
 
   async function remove(q) {
     try {
-      await api('DELETE', `/api/quotes/${q.id}`);
+      await quotes.remove(q.id);
       Q.items = Q.items.filter((x) => x.id !== q.id);
       changed();
       updateCount();
@@ -296,7 +296,7 @@
     $('#quotes-undo').hidden = true;
     Q.undo = null;
     try {
-      await api('POST', '/api/quotes/restore', { quote: u.quote });
+      await quotes.restore(u.quote);
       await reload();
       changed();
       render();

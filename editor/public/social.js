@@ -37,7 +37,7 @@
   const lib = { links: [], quotes: [], loaded: 0 };
   async function loadLibrary(force = false) {
     if (!force && Date.now() - lib.loaded < 15000) return lib;
-    const [links, quotes] = await Promise.allSettled([api('GET', '/api/links'), api('GET', '/api/quotes')]);
+    const [links, quotes] = await Promise.allSettled([api('GET', '/api/links'), window.dbw.quotes.list()]);
     if (links.status === 'fulfilled') lib.links = links.value;
     if (quotes.status === 'fulfilled') lib.quotes = quotes.value;
     lib.loaded = Date.now();

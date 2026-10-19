@@ -334,7 +334,7 @@
     renderStats();
     renderActivity();
     const [lists, links, quotes, stats, social, activity] = await Promise.allSettled([
-      dbw.loadList(), api('GET', '/api/links'), api('GET', '/api/quotes'), api('GET', '/api/stats'), api('GET', '/api/social'), api('GET', '/api/activity'),
+      dbw.loadList(), api('GET', '/api/links'), dbw.quotes.list(), api('GET', '/api/stats'), api('GET', '/api/social'), api('GET', '/api/activity'),
     ]);
     if (activity.status === 'fulfilled') H.activity = activity.value;
     if (social.status === 'fulfilled') H.social = social.value;
