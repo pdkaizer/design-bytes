@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { api, toast, prefs } = window.dbw;
+  const { toast, prefs, links } = window.dbw;
   const articles = () => window.dbw.articles(); // [{ slug, title, status }]
   const articleTitle = (slug) => articles().find((a) => a.slug === slug)?.title;
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -55,7 +55,7 @@
   // Loading & rendering
 
   async function reload() {
-    L.items = await api('GET', '/api/links');
+    L.items = await links.list();
     L.loaded = true;
     for (const t of [...L.tags]) if (!L.items.some((l) => l.tags.includes(t))) L.tags.delete(t);
     for (const l of L.items) l.articles = l.articles || [];
@@ -239,7 +239,7 @@
       suggestBtn.disabled = true;
       suggestions.replaceChildren(h('span', {}, 'Thinking…'));
       try {
-        const r = await api('POST', `/api/links/${l.id}/suggest-tags`, { current: tags });
+        const r = await links.suggestTags(l.id, tags);
         const fresh = r.tags.filter((t) => !tags.includes(t));
         suggestions.replaceChildren(...(fresh.length
           ? [...fresh.map((t) => h('button', {
@@ -257,7 +257,7 @@
     async function save() {
       if (tagInput.value.trim()) addTag(tagInput.value);
       try {
-        const updated = await api('PATCH', `/api/links/${l.id}`, { title: title.value, tags, note: note.value, articles: linked });
+        const updated = await links.update(l.id, { title: title.value, tags, note: note.value, articles: linked });
         Object.assign(l, updated);
         changed();
         L.editing = null;
@@ -333,7 +333,7 @@
     btn.disabled = true;
     btn.textContent = 'Saving…';
     try {
-      const link = await api('POST', '/api/links', { url });
+      const link = await links.add(url);
       L.items.unshift(link);
       changed();
       $('#link-url').value = '';
@@ -365,7 +365,7 @@
 
   async function remove(l) {
     try {
-      await api('DELETE', `/api/links/${l.id}`);
+      await links.remove(l.id);
       L.items = L.items.filter((x) => x.id !== l.id);
       changed();
       updateCount();
@@ -387,7 +387,7 @@
     $('#links-undo').hidden = true;
     L.undo = null;
     try {
-      await api('POST', '/api/links/restore', { link: u.link });
+      await links.restore(u.link);
       await reload();
       changed();
       render();

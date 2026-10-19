@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { api, toast, prefs, social } = window.dbw;
+  const { toast, prefs, social } = window.dbw;
   const $ = (sel, root = document) => root.querySelector(sel);
   const body = document.body;
   const pieces = () => window.dbw.articles(); // articles and thoughts: [{ slug (key), title, status, kind }]
@@ -37,7 +37,7 @@
   const lib = { links: [], quotes: [], loaded: 0 };
   async function loadLibrary(force = false) {
     if (!force && Date.now() - lib.loaded < 15000) return lib;
-    const [links, quotes] = await Promise.allSettled([api('GET', '/api/links'), window.dbw.quotes.list()]);
+    const [links, quotes] = await Promise.allSettled([window.dbw.links.list(), window.dbw.quotes.list()]);
     if (links.status === 'fulfilled') lib.links = links.value;
     if (quotes.status === 'fulfilled') lib.quotes = quotes.value;
     lib.loaded = Date.now();

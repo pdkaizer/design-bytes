@@ -3,9 +3,10 @@
   'use strict';
 
   const md = window.DBMarkdown;
-  // Saved quotes and social posts, read and written through the bridge.
+  // Saved quotes, social posts and links, read and written through the bridge.
   const quotes = window.DBQuotes.createQuotes(window.DBBridge);
   const social = window.DBSocial.createSocial(window.DBBridge);
+  const links = window.DBLinks.createLinks(window.DBBridge);
   const $ = (sel) => document.querySelector(sel);
   const body = document.body;
   const ed = $('#editor');
@@ -891,7 +892,7 @@
 
     const id = ++sug.request;
     try {
-      const r = await api('POST', '/api/suggest', {
+      const r = await window.DBBridge.suggestAlternatives({
         selection: range.text,
         ...paragraphAround(range.start, range.end),
         title: md.title(ed.value),
@@ -1717,7 +1718,7 @@
   const isUrl = (s) => /^(https?:\/\/|www\.)\S+$/i.test(s.trim()) || /^[\w-]+(\.[\w-]+)+\/\S*$/.test(s.trim());
 
   async function loadArtLinks() {
-    try { artLinks.all = await api('GET', '/api/links'); } catch { /* links are optional */ }
+    try { artLinks.all = await links.list(); } catch { /* links are optional */ }
     renderArtLinks();
   }
 
@@ -1785,7 +1786,7 @@
     const list = new Set(l.articles || []);
     if (attach) list.add(slug); else list.delete(slug);
     try {
-      const updated = await api('PATCH', `/api/links/${l.id}`, { articles: [...list] });
+      const updated = await links.update(l.id, { articles: [...list] });
       Object.assign(l, updated);
       if (!artLinks.all.some((x) => x.id === l.id)) artLinks.all.unshift(l);
       renderArtLinks();
@@ -1799,7 +1800,7 @@
   async function attachUrl(raw) {
     let link;
     try {
-      link = await api('POST', '/api/links', { url: raw });
+      link = await links.add(raw);
       toast(`Saved “${link.title}” for this article`);
     } catch (err) {
       if (err.status === 409 && err.data?.link) link = err.data.link; // already saved: just attach it
@@ -2289,9 +2290,9 @@
       refresh(true);
       if (renamed) toast(`Renamed to ${folder}/${a.slug}.md`);
       if (renamed && !isPlain(doc.kind)) {
-        // Its quotes and social posts follow it (links are moved by the server).
-        await Promise.all([quotes, social].map((lib) => lib.renameArticle(oldKey, docKey(doc))))
-          .catch((err) => toast(`Renamed, but couldn’t update its quotes or posts: ${err.message}`));
+        // Its links, quotes and social posts follow it.
+        await Promise.all([links, quotes, social].map((lib) => lib.renameArticle(oldKey, docKey(doc))))
+          .catch((err) => toast(`Renamed, but couldn’t update its links, quotes or posts: ${err.message}`));
         loadArtLinks();
         loadArtQuotes();
       }
@@ -2567,7 +2568,7 @@
 
   // A few helpers for links.js, which runs the Links page.
   window.dbw = {
-    api, toast, prefs, ask, copyText, setView, quotes, social,
+    api, toast, prefs, ask, copyText, setView, quotes, social, links,
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

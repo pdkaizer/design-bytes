@@ -14,7 +14,7 @@ const md = require('./lib/markdown');
 const store = require('./lib/store');
 const { renderArticle } = require('./lib/template');
 const { suggest, suggestTags } = require('./lib/suggest');
-const links = require('./lib/links');
+const { pageDetails } = require('./lib/pagedetails');
 const publisher = require('./lib/publish');
 const datafiles = require('./lib/datafiles');
 const { writingStats, activity } = require('./lib/stats');
@@ -188,7 +188,6 @@ async function documentsApi(req, res, coll, slug, action, versionId) {
       await fsp.rename(file, coll.file(next));
       await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
       const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
-      if (!isNote) await links.renameArticle(key(slug), key(next)).catch((err) => console.error('links:', err));
     }
     if (!isNote) {
       // Keep the slug: line in step with the file name.
@@ -264,35 +263,6 @@ async function inlineImages(html) {
   return html.replace(/<a href="\.\.\/index\.html">/, '<a href="#">');
 }
 
-// /api/links — saved links with tags.
-async function linksApi(req, res, id, action) {
-  const method = req.method;
-  if (!id) {
-    if (method === 'GET') return json(res, 200, await links.list());
-    if (method === 'POST') {
-      try {
-        return json(res, 201, await links.add((await readJson(req)).url));
-      } catch (err) {
-        if (err.status === 409) return json(res, 409, { error: err.message, link: err.link });
-        throw err;
-      }
-    }
-    throw httpError(405, 'Method not allowed');
-  }
-  if (id === 'restore' && method === 'POST') return json(res, 200, await links.restore((await readJson(req)).link));
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw httpError(400, 'Invalid link');
-  if (!action && method === 'PATCH') return json(res, 200, await links.update(id, await readJson(req)));
-  if (!action && method === 'DELETE') return json(res, 200, await links.remove(id));
-  if (action === 'suggest-tags' && method === 'POST') {
-    const link = await links.get(id);
-    const current = links.cleanTags((await readJson(req)).current || link.tags); // tags in the editor, maybe unsaved
-    const existing = [...new Set([...(await links.list()).flatMap((l) => l.tags), ...current])].sort();
-    const { tags } = await suggestTags({ ...link, current, existing });
-    return json(res, 200, { tags: links.cleanTags(tags).filter((t) => !current.includes(t)) });
-  }
-  throw httpError(404, 'Not found');
-}
-
 // /api/data/<name> — whole data files the page reads and writes through the bridge.
 async function dataApi(req, res, name) {
   if (!datafiles.fileFor(name)) throw httpError(404, 'Not found');
@@ -364,7 +334,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js'];
+const SHARED = ['/lib/markdown.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
@@ -392,7 +362,16 @@ const server = http.createServer(async (req, res) => {
     const parts = pathname.split('/').filter(Boolean);
 
     if (parts[0] === 'api') {
-      if (parts[1] === 'links' && parts.length <= 4) return await linksApi(req, res, parts[2], parts[3]);
+      if (parts[1] === 'page-details' && parts.length === 2 && req.method === 'POST') {
+        const { url: href } = await readJson(req);
+        try { new URL(href); } catch { throw httpError(400, 'Invalid address'); }
+        return json(res, 200, await pageDetails(href));
+      }
+      if (parts[1] === 'suggest-tags' && parts.length === 2 && req.method === 'POST') {
+        const { title, url: href, description, note, current, existing } = await readJson(req);
+        const words = (list) => (Array.isArray(list) ? list.map(String).slice(0, 500) : []);
+        return json(res, 200, await suggestTags({ title: String(title || ''), url: String(href || ''), description: String(description || ''), note: String(note || ''), current: words(current), existing: words(existing) }));
+      }
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
       if (parts[1] === 'stats' && parts.length === 2 && req.method === 'GET') return json(res, 200, await writingStats());
       if (parts[1] === 'activity' && parts.length === 2 && req.method === 'GET') return json(res, 200, await activity());
@@ -430,7 +409,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  thoughts:    ${path.relative(process.cwd(), store.THOUGHTS) || '.'}/  →  publishes to ${process.env.THOUGHTS_SITE || '(set THOUGHTS_SITE in .env)'}`);
   console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
   console.log(`  journal:     ${path.relative(process.cwd(), store.JOURNAL) || '.'}/`);
-  console.log(`  links:       ${path.relative(process.cwd(), links.DIR) || '.'}/`);
+  console.log(`  links:       ${path.relative(process.cwd(), path.dirname(datafiles.FILES.links)) || '.'}/`);
   console.log(`  quotes:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.quotes)) || '.'}/`);
   console.log(`  social:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.social)) || '.'}/`);
   console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
