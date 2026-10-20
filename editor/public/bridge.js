@@ -37,6 +37,24 @@
     // Save it. Fails with status 409 if it changed since `version` (another tab saved it).
     writeData: (name, data, version) => call('PUT', `/api/data/${encodeURIComponent(name)}`, { data, version }),
 
+    // Images, saved in images/ and used in articles as ../images/<name>. Names are made unique.
+    // Saves an image file (a File or Blob): { name, path }.
+    saveImage: async (file, name) => {
+      const res = await fetch(`/api/images?${q({ name })}`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw Object.assign(new Error(json.error || res.statusText), { status: res.status, data: json });
+      return json;
+    },
+    // Downloads a web image, saving it as `name` (or reusing an identical copy): { name, path, reused }.
+    downloadImage: (url, name) => call('POST', '/api/images/fetch', { url, name }),
+
+    // peterkaizer.com (the 11ty site set by THOUGHTS_SITE). Mac only: publishing runs git.
+    // The categories its thoughts use: [name, …].
+    siteCategories: () => call('GET', '/api/site/categories'),
+    // Writes thoughts/<slug>.md into the site, commits and pushes: { draft, file, committed, pushed, note }.
+    // Fails with status 409 (data.needsConfirm) if the site has a different post that DB Writer didn't publish.
+    publishThought: (slug, { overwrite = false } = {}) => call('POST', `/api/thoughts/${encodeURIComponent(slug)}/publish`, { overwrite }),
+
     // A web page's { title, description, site } (any of them may be missing).
     pageDetails: (url) => call('POST', '/api/page-details', { url }),
 

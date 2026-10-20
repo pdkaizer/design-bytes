@@ -1,16 +1,19 @@
-'use strict';
+/*
+ * HTML page templates for published articles. The article styles are the same
+ * file the editor preview uses (public/article.css), so what you see while
+ * writing is what ships. Runs in the page (window.DBTemplate, for Download as
+ * HTML) and in Node (require, for npm run build); the caller passes the styles in.
+ */
+(function (root, factory) {
+  const api = factory(typeof module === 'object' && module.exports ? require('./markdown') : root.DBMarkdown);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.DBTemplate = api;
+})(typeof self !== 'undefined' ? self : globalThis, function (md) {
+  'use strict';
 
-// HTML page templates for published articles. The article styles are the same
-// file the editor preview uses, so what you see while writing is what ships.
+  const esc = md.escape;
 
-const fs = require('fs');
-const path = require('path');
-const md = require('./markdown');
-
-const ARTICLE_CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'article.css'), 'utf8');
-const esc = md.escape;
-
-const PAGE_CSS = `
+  const PAGE_CSS = `
 body { margin: 0; background: var(--a-paper); color: var(--a-ink); }
 .site, .index { max-width: 68ch; margin: 0 auto; padding: 32px 20px 0; font: 1.125rem/1.7 var(--a-serif); }
 .site img { display: block; height: 28px; width: auto; }
@@ -26,11 +29,11 @@ main.article { padding: 56px 20px 96px; }
 .index .meta { font: .8em var(--a-sans); color: var(--a-soft); }
 `;
 
-const formatDate = (ms) =>
-  new Date(ms).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const formatDate = (ms) =>
+    new Date(ms).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-function page({ title, description = '', body, root }) {
-  return `<!doctype html>
+  function page({ title, description = '', body, root, css }) {
+    return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -38,7 +41,7 @@ function page({ title, description = '', body, root }) {
 <title>${esc(title)}</title>
 ${description ? `<meta name="description" content="${esc(description)}">\n` : ''}<link rel="icon" href="${root}images/db-icon.png">
 <style>
-${ARTICLE_CSS}
+${css}
 ${PAGE_CSS}
 </style>
 </head>
@@ -48,36 +51,41 @@ ${body}
 </body>
 </html>
 `;
-}
+  }
 
-// Renders one article. Articles sit one level below the site root
-// (articles/<slug>.html) so their ../images/ paths keep working.
-function renderArticle(markdown, { mtime = Date.now() } = {}) {
-  const { minutes } = md.stats(markdown);
-  const meta = `<p class="meta">${formatDate(md.published(markdown) ?? mtime)} · ${minutes} min read</p>`;
-  let html = md.render(markdown, { withTitle: true });
-  html = /^<h[12][ >]/.test(html)
-    ? html.replace(/^(<h[12][^>]*>[\s\S]*?<\/h[12]>)/, `$1\n${meta}`)
-    : `${meta}\n${html}`;
-  return page({
-    title: `${md.title(markdown) || 'Untitled'} · Design Bytes`,
-    description: md.excerpt(markdown, 160),
-    body: `<main class="article">\n${html}\n</main>`,
-    root: '../',
-  });
-}
+  // Renders one article. Articles sit one level below the site root
+  // (articles/<slug>.html) so their ../images/ paths keep working.
+  // css: the text of public/article.css.
+  // css: the text of public/article.css.
+  function renderArticle(markdown, { mtime = Date.now(), css = '' } = {}) {
+    const { minutes } = md.stats(markdown);
+    const meta = `<p class="meta">${formatDate(md.published(markdown) ?? mtime)} · ${minutes} min read</p>`;
+    let html = md.render(markdown, { withTitle: true });
+    html = /^<h[12][ >]/.test(html)
+      ? html.replace(/^(<h[12][^>]*>[\s\S]*?<\/h[12]>)/, `$1\n${meta}`)
+      : `${meta}\n${html}`;
+    return page({
+      title: `${md.title(markdown) || 'Untitled'} · Design Bytes`,
+      description: md.excerpt(markdown, 160),
+      body: `<main class="article">\n${html}\n</main>`,
+      root: '../',
+      css,
+    });
+  }
 
-function renderIndex(articles) {
-  const items = articles.map((a) => `<li><a href="articles/${esc(a.slug)}.html">
+  function renderIndex(articles, { css = '' } = {}) {
+    const items = articles.map((a) => `<li><a href="articles/${esc(a.slug)}.html">
 <h2>${esc(a.title)}</h2>
 ${a.excerpt ? `<p>${esc(a.excerpt)}</p>` : ''}
 <span class="meta">${formatDate(a.published ?? a.mtime)} · ${a.minutes} min read</span>
 </a></li>`).join('\n');
-  return page({
-    title: 'Design Bytes',
-    body: `<main class="index">\n<h1>Articles</h1>\n<ol>\n${items}\n</ol>\n</main>`,
-    root: '',
-  });
-}
+    return page({
+      title: 'Design Bytes',
+      body: `<main class="index">\n<h1>Articles</h1>\n<ol>\n${items}\n</ol>\n</main>`,
+      root: '',
+      css,
+    });
+  }
 
-module.exports = { renderArticle, renderIndex };
+  return { renderArticle, renderIndex };
+});

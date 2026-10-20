@@ -2,9 +2,21 @@
 (() => {
   'use strict';
 
-  const { api, toast, prefs } = window.dbw;
+  const { toast, prefs } = window.dbw;
   const $ = (sel, root = document) => root.querySelector(sel);
   const PLACEHOLDER = '__GHOST_URL__';
+
+  // Ghost serves resized copies at /content/images/size/w1200/…; download the original.
+  const originalImage = (src) => src.replace(/\/content\/images\/size\/[^/]+\//, '/content/images/');
+  // Name a downloaded image after its path, so it's recognisable: /content/images/2024/03/photo.jpg → 2024-03-photo.jpg.
+  function imageName(src) {
+    try {
+      const parts = decodeURIComponent(new URL(originalImage(src)).pathname).split('/').filter(Boolean);
+      return parts.slice(-3).join('-').replace(/^content-images-/, '').replace(/^images-/, '');
+    } catch {
+      return '';
+    }
+  }
 
   const h = (tag, props = {}, ...children) => {
     const node = document.createElement(tag);
@@ -282,7 +294,7 @@
         for (const src of wanted) {
           if (images.has(src) || !/^https?:/i.test(src)) continue;
           try {
-            const r = await api('POST', '/api/images/fetch', { url: src });
+            const r = await window.DBBridge.downloadImage(originalImage(src), imageName(src));
             images.set(src, r.path);
             if (!r.reused) downloaded++;
           } catch (err) {

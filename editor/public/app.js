@@ -77,24 +77,6 @@
   const isMobile = () => matchMedia('(max-width: 760px)').matches;
 
   // ---------------------------------------------------------------------------
-  // Server
-
-  async function api(method, url, data, file) {
-    const opts = { method, headers: {} };
-    if (file) {
-      opts.body = file;
-      opts.headers['Content-Type'] = file.type || 'application/octet-stream';
-    } else if (data !== undefined) {
-      opts.body = JSON.stringify(data);
-      opts.headers['Content-Type'] = 'application/json';
-    }
-    const res = await fetch(url, opts);
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(json.error || res.statusText), { status: res.status, data: json });
-    return json;
-  }
-
-  // ---------------------------------------------------------------------------
   // Article list
 
   const relTime = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
@@ -118,7 +100,6 @@
   const listOf = (kind) => ({ notes: state.notes, thoughts: state.thoughts, journal: state.journal }[kind] || state.articles);
   // How saved links refer to a document: "slug" for articles, "thoughts/slug" for thoughts.
   const docKey = (doc = state.doc) => (doc?.kind === 'thoughts' ? `thoughts/${doc.slug}` : doc?.slug);
-  const docUrl = (doc = state.doc) => `/api/${doc.kind}/${enc(doc.slug)}`;
   const hashFor = (kind, slug) => (kind === 'notes' ? `#note/${slug}` : kind === 'journal' ? `#journal/${slug}` : `#${slug}`);
   const isOpen = (kind, slug) => state.doc?.kind === kind && state.doc?.slug === slug;
   function parseHash() {
@@ -1883,7 +1864,7 @@
   let siteCategories = null;
   async function loadCategories() {
     if (siteCategories) return siteCategories;
-    try { siteCategories = await api('GET', '/api/site/categories'); } catch { siteCategories = []; }
+    try { siteCategories = await window.DBBridge.siteCategories(); } catch { siteCategories = []; }
     return siteCategories;
   }
   function syncCategory(text) {
@@ -1933,7 +1914,7 @@
     try {
       let r;
       try {
-        r = await api('POST', `${docUrl(doc)}/publish`, {});
+        r = await window.DBBridge.publishThought(doc.slug);
       } catch (err) {
         if (err.status !== 409 || !err.data?.needsConfirm) throw err;
         const replace = await ask({
@@ -1942,7 +1923,7 @@
           confirm: 'Replace it', danger: true,
         });
         if (!replace) return;
-        r = await api('POST', `${docUrl(doc)}/publish`, { overwrite: true });
+        r = await window.DBBridge.publishThought(doc.slug, { overwrite: true });
       }
       if (r.draft !== doc.saved) {
         // The draft is now marked published (and may have gained a date:) — save that,
@@ -2142,7 +2123,7 @@
       const name = generic ? `${state.doc.slug}-${stamp()}.${ext}` : file.name;
       try {
         toast(`Adding ${name}…`);
-        const r = await api('POST', `/api/images?name=${enc(name)}`, undefined, file);
+        const r = await window.DBBridge.saveImage(file, name);
         const alt = generic ? '' : r.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
         insertBlock(`![${alt}](${r.path})`);
         toast(`Saved to images/${r.name}`);
@@ -2340,12 +2321,37 @@
     }
   }
 
+  // A single, self-contained HTML page for the article, with its images embedded.
   async function exportDoc() {
     await save();
-    const a = document.createElement('a');
-    a.href = `${docUrl()}/export`;
-    a.download = `${state.doc.slug}.html`;
-    a.click();
+    const doc = state.doc;
+    try {
+      const css = await (await fetch('/article.css')).text();
+      let html = window.DBTemplate.renderArticle(fileText(), { mtime: doc.mtime, css });
+      const names = new Set([...html.matchAll(/src="\.\.\/images\/([^"?#]+)"/g)].map((m) => m[1]));
+      for (const name of names) {
+        const res = await fetch(`/images/${name}`);
+        if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/')) continue;
+        const blob = await res.blob();
+        const data = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+        if (data) html = html.split(`src="../images/${name}"`).join(`src="${data}"`);
+      }
+      html = html.replace(/<a href="\.\.\/index\.html">/, '<a href="#">'); // there's no site index next to a downloaded page
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+      a.download = `${doc.slug}.html`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    } catch (err) {
+      toast(`Couldn’t make the HTML file: ${err.message}`);
+    }
   }
 
   async function copyText(text) {
@@ -2569,7 +2575,7 @@
 
   // A few helpers for links.js, which runs the Links page.
   window.dbw = {
-    api, toast, prefs, ask, copyText, setView, quotes, social, links, documents,
+    toast, prefs, ask, copyText, setView, quotes, social, links, documents,
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

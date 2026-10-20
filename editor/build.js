@@ -11,6 +11,8 @@ const path = require('path');
 const store = require('./lib/store');
 const { renderArticle, renderIndex } = require('./lib/template');
 
+const css = require('fs').readFileSync(path.join(__dirname, 'public', 'article.css'), 'utf8');
+
 const OUT = path.join(store.ROOT, 'dist');
 
 (async () => {
@@ -27,9 +29,9 @@ const OUT = path.join(store.ROOT, 'dist');
     .sort((a, b) => (b.published ?? b.mtime) - (a.published ?? a.mtime)); // newest published first
   for (const { slug, mtime } of articles) {
     const { content } = await store.readArticle(slug);
-    await fsp.writeFile(path.join(OUT, 'articles', `${slug}.html`), renderArticle(content, { mtime }));
+    await fsp.writeFile(path.join(OUT, 'articles', `${slug}.html`), renderArticle(content, { mtime, css }));
   }
-  await fsp.writeFile(path.join(OUT, 'index.html'), renderIndex(articles));
+  await fsp.writeFile(path.join(OUT, 'index.html'), renderIndex(articles, { css }));
 
   const skipped = all.length - articles.length;
   console.log(`Built ${articles.length} published article${articles.length === 1 ? '' : 's'} → ${path.relative(process.cwd(), OUT) || OUT}/` +

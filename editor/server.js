@@ -11,7 +11,6 @@ const fsp = require('fs').promises;
 const path = require('path');
 const { execFile } = require('child_process');
 const store = require('./lib/store');
-const { renderArticle } = require('./lib/template');
 const { suggest, suggestTags } = require('./lib/suggest');
 const { pageDetails } = require('./lib/pagedetails');
 const publisher = require('./lib/publish');
@@ -108,7 +107,7 @@ async function filesApi(req, res, url, action) {
   }
 }
 
-// /api/thoughts/<slug>/publish and /api/<kind>/<slug>/export — what documents still need the server for.
+// /api/thoughts/<slug>/publish — publishing a thought runs git, so it stays on the server.
 async function documentsApi(req, res, coll, slug, action) {
   if (!slug || !store.isSlug(slug)) throw httpError(400, 'Invalid name');
 
@@ -125,30 +124,7 @@ async function documentsApi(req, res, coll, slug, action) {
     }
   }
 
-  if (action === 'export' && req.method === 'GET') {
-    const { content, mtime } = await coll.read(slug);
-    const html = await inlineImages(renderArticle(content, { mtime }));
-    return send(res, 200, html, {
-      'Content-Type': TYPES['.html'],
-      'Content-Disposition': `attachment; filename="${slug}.html"`,
-    });
-  }
-
   throw httpError(404, 'Not found');
-}
-
-// Make an exported article self-contained by embedding its images.
-async function inlineImages(html) {
-  const names = new Set([...html.matchAll(/src="\.\.\/images\/([^"?#]+)"/g)].map((m) => m[1]));
-  for (const name of names) {
-    const file = path.join(store.IMAGES, decodeURIComponent(name));
-    const type = TYPES[path.extname(file).toLowerCase()];
-    if (!file.startsWith(store.IMAGES + path.sep) || !type?.startsWith('image/')) continue;
-    const data = await fsp.readFile(file).catch(() => null);
-    if (!data) continue;
-    html = html.split(`src="../images/${name}"`).join(`src="data:${type};base64,${data.toString('base64')}"`);
-  }
-  return html.replace(/<a href="\.\.\/index\.html">/, '<a href="#">');
 }
 
 // /api/data/<name> — whole data files the page reads and writes through the bridge.
@@ -166,7 +142,6 @@ async function dataApi(req, res, name) {
 }
 
 async function imagesApi(req, res, url) {
-  if (req.method === 'GET') return json(res, 200, await store.listImages());
   if (req.method === 'POST') {
     let name = url.searchParams.get('name') || 'image';
     const type = (req.headers['content-type'] || '').split(';')[0].trim();
@@ -184,15 +159,13 @@ async function imagesApi(req, res, url) {
   throw httpError(405, 'Method not allowed');
 }
 
-// POST /api/images/fetch { url } — downloads a web image into /images (used when
-// importing from Ghost). Downloading the same image again reuses the saved copy.
+// POST /api/images/fetch { url, name } — downloads a web image into /images as `name`
+// (made unique). Downloading the same image again reuses the saved copy.
 async function fetchImage(req, res) {
-  const { url } = await readJson(req);
+  const { url, name: wanted } = await readJson(req);
   let src;
   try { src = new URL(String(url || '')); } catch { throw httpError(400, 'Not a web address'); }
   if (!/^https?:$/.test(src.protocol)) throw httpError(400, 'Only http and https images can be downloaded');
-  // Ghost serves resized copies at /content/images/size/w1200/…; fetch the original.
-  src.pathname = src.pathname.replace(/\/content\/images\/size\/[^/]+\//, '/content/images/');
   let response;
   try {
     response = await fetch(src.href, { redirect: 'follow', signal: AbortSignal.timeout(30000), headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh) DBWriter/1.0' } });
@@ -203,9 +176,7 @@ async function fetchImage(req, res) {
   const type = (response.headers.get('content-type') || '').split(';')[0].trim();
   const data = Buffer.from(await response.arrayBuffer());
   if (!data.length || data.length > MAX_IMAGE) throw httpError(415, `${src.href} is empty or too large`);
-  // Name it after the path (Ghost's /2024/03/photo.jpg → 2024-03-photo.jpg) so it's recognisable.
-  const parts = decodeURIComponent(src.pathname).split('/').filter(Boolean);
-  let name = parts.slice(-3).join('-').replace(/^content-images-/, '').replace(/^images-/, '');
+  let name = String(wanted || decodeURIComponent(src.pathname).split('/').filter(Boolean).pop() || 'image');
   if (!store.IMAGE_EXT.test(name)) {
     if (!IMAGE_TYPES[type]) throw httpError(415, `${src.href} isn’t an image`);
     name = `${name.replace(/\.[^.]*$/, '') || 'image'}${IMAGE_TYPES[type]}`;
@@ -222,7 +193,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js'];
+const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js', '/lib/template.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
