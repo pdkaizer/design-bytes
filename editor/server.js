@@ -16,7 +16,6 @@ const { suggest, suggestTags } = require('./lib/suggest');
 const { pageDetails } = require('./lib/pagedetails');
 const publisher = require('./lib/publish');
 const datafiles = require('./lib/datafiles');
-const { writingStats, activity } = require('./lib/stats');
 const files = require('./lib/files');
 
 const PORT = Number(process.env.PORT) || 4321;
@@ -223,7 +222,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js'];
+const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
@@ -263,8 +262,6 @@ const server = http.createServer(async (req, res) => {
       }
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
       if (parts[1] === 'files' && parts.length <= 3) return await filesApi(req, res, url, parts[2]);
-      if (parts[1] === 'stats' && parts.length === 2 && req.method === 'GET') return json(res, 200, await writingStats());
-      if (parts[1] === 'activity' && parts.length === 2 && req.method === 'GET') return json(res, 200, await activity());
       if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
       const coll = store.collection(parts[1]);
       if (coll && parts.length === 4) return await documentsApi(req, res, coll, parts[2], parts[3]);

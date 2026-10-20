@@ -1,37 +1,50 @@
-'use strict';
+/*
+ * Writing stats and the activity graph for the Home page, worked out from
+ * version history: how many words each piece had at a point in time, compared
+ * with how many it has now. Versions are kept every few minutes while writing,
+ * so these are close estimates. Runs in the page (window.DBStats) and in Node
+ * (require, for tests). It only does arithmetic; the page gathers the pieces.
+ *
+ * pieces: [{ kind, doc, versions }] where doc is a document summary from
+ * lib/documents.js ({ slug, words, mtime, created, published, status }) and
+ * versions are its history entries ({ time, words }).
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.DBStats = api;
+})(typeof self !== 'undefined' ? self : globalThis, function () {
+  'use strict';
 
-// Writing stats for the Home page, worked out from version history: how many
-// words each piece had at a point in time, compared with how many it has now.
-// Versions are kept every few minutes while writing, so these are close estimates.
+  const DAY = 24 * 60 * 60 * 1000;
 
-const store = require('./store');
-const history = require('./history');
+  const dayKey = (ms) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  };
+  const iso = (ms) => {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const oldestFirst = (versions) => [...(versions || [])].sort((a, b) => a.time - b.time);
 
-const DAY = 24 * 60 * 60 * 1000;
-const KINDS = ['articles', 'thoughts', 'notes', 'journal'];
+  // The last 7 days against the 7 before: words written, days you wrote, and
+  // how many pieces are in progress, ready and published.
+  function writingStats(pieces, now = Date.now()) {
+    const weekAgo = now - 7 * DAY;
+    const twoWeeksAgo = now - 14 * DAY;
+    let words = 0;
+    let wordsBefore = 0;
+    const days = new Set();
+    const daysBefore = new Set();
+    const counts = { inProgress: 0, ready: 0, published: 0 };
 
-const dayKey = (ms) => {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-};
-
-async function writingStats(now = Date.now()) {
-  const weekAgo = now - 7 * DAY;
-  const twoWeeksAgo = now - 14 * DAY;
-  let words = 0;
-  let wordsBefore = 0;
-  const days = new Set();
-  const daysBefore = new Set();
-  const counts = { inProgress: 0, ready: 0, published: 0 };
-
-  for (const kind of KINDS) {
-    const coll = store.collection(kind);
-    for (const doc of await coll.list()) {
+    for (const { doc, versions: unsorted } of pieces) {
       if (doc.status === 'final') counts.ready++;
       else if (doc.status === 'published') counts.published++;
       else if (doc.status) counts.inProgress++;
 
-      const versions = (await history.list(coll, doc.slug)).sort((a, b) => a.time - b.time);
+      const versions = oldestFirst(unsorted);
       // A piece published before it was added (an imported back-catalogue piece) counts from its publish date.
       const created = Math.min(doc.created ?? versions[0]?.time ?? doc.mtime, doc.published ?? Infinity);
       // Words the piece had at time t: its newest version from before then.
@@ -49,41 +62,30 @@ async function writingStats(now = Date.now()) {
         else if (t > twoWeeksAgo && t <= weekAgo) daysBefore.add(dayKey(t));
       }
     }
+
+    return { words, wordsBefore, days: days.size, daysBefore: daysBefore.size, ...counts };
   }
 
-  return {
-    words, wordsBefore,
-    days: days.size, daysBefore: daysBefore.size,
-    ...counts,
-  };
-}
+  // Daily activity for the last 53 weeks, like a GitHub contribution graph:
+  // words written each day (growth in word count between saved versions), the
+  // pieces you worked on, and the links, quotes and social posts you saved
+  // (saved: { links, quotes, posts }, each a list with created times).
+  // Growth between a piece being added and its first saved version counts on the
+  // day it was added (so an imported piece counts on its import day).
+  function activity(pieces, saved = {}, now = Date.now()) {
+    const end = new Date(now);
+    end.setHours(0, 0, 0, 0);
+    const start = new Date(end);
+    start.setDate(start.getDate() - 52 * 7 - end.getDay()); // a Sunday, 53 columns ago
+    const days = new Map();
+    const day = (ms) => {
+      const key = iso(ms);
+      if (!days.has(key)) days.set(key, { words: 0, pieces: new Set(), links: 0, quotes: 0, posts: 0 });
+      return days.get(key);
+    };
 
-// Daily activity for the last 53 weeks, like a GitHub contribution graph:
-// words written each day (growth in word count between saved versions), the
-// pieces you worked on, and the links, quotes and social posts you saved.
-// Growth between a piece being added and its first saved version counts on the
-// day it was added (so an imported piece counts on its import day).
-async function activity(now = Date.now()) {
-  const end = new Date(now);
-  end.setHours(0, 0, 0, 0);
-  const start = new Date(end);
-  start.setDate(start.getDate() - 52 * 7 - end.getDay()); // a Sunday, 53 columns ago
-  const days = new Map();
-  const iso = (ms) => {
-    const d = new Date(ms);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
-  const day = (ms) => {
-    const key = iso(ms);
-    if (!days.has(key)) days.set(key, { words: 0, pieces: new Set(), links: 0, quotes: 0, posts: 0 });
-    return days.get(key);
-  };
-
-  for (const kind of KINDS) {
-    const coll = store.collection(kind);
-    for (const doc of await coll.list()) {
-      const versions = (await history.list(coll, doc.slug)).sort((a, b) => a.time - b.time);
-      const points = [...versions.map((v) => ({ t: v.time, w: v.words })), { t: doc.mtime, w: doc.words }];
+    for (const { kind, doc, versions } of pieces) {
+      const points = [...oldestFirst(versions).map((v) => ({ t: v.time, w: v.words })), { t: doc.mtime, w: doc.words }];
       const since = Math.min(doc.created ?? Infinity, doc.published ?? Infinity); // published earlier → count it then
       if (since < points[0].t) points.unshift({ t: since, w: 0, added: true });
       for (let i = 0; i < points.length; i++) {
@@ -99,25 +101,19 @@ async function activity(now = Date.now()) {
         if (when >= start.getTime()) day(when).words += grew;
       }
     }
+
+    for (const [field, items] of [['links', saved.links], ['quotes', saved.quotes], ['posts', saved.posts]]) {
+      for (const item of items || []) if (item.created >= start.getTime()) day(item.created)[field]++;
+    }
+
+    const out = [];
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const a = days.get(iso(d.getTime()));
+      out.push(a ? { date: iso(d.getTime()), words: a.words, pieces: a.pieces.size, links: a.links, quotes: a.quotes, posts: a.posts }
+        : { date: iso(d.getTime()), words: 0, pieces: 0, links: 0, quotes: 0, posts: 0 });
+    }
+    return { start: iso(start.getTime()), days: out };
   }
 
-  const tally = async (file, key, field) => {
-    try {
-      const data = JSON.parse(await require('fs').promises.readFile(require('path').join(store.ROOT, file), 'utf8'))[key] || [];
-      for (const item of data) if (item.created >= start.getTime()) day(item.created)[field]++;
-    } catch { /* nothing saved yet */ }
-  };
-  await tally('links/links.json', 'links', 'links');
-  await tally('quotes/quotes.json', 'quotes', 'quotes');
-  await tally('social/posts.json', 'posts', 'posts');
-
-  const out = [];
-  for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const a = days.get(iso(d.getTime()));
-    out.push(a ? { date: iso(d.getTime()), words: a.words, pieces: a.pieces.size, links: a.links, quotes: a.quotes, posts: a.posts }
-      : { date: iso(d.getTime()), words: 0, pieces: 0, links: 0, quotes: 0, posts: 0 });
-  }
-  return { start: iso(start.getTime()), days: out };
-}
-
-module.exports = { writingStats, activity };
+  return { writingStats, activity };
+});

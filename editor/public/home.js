@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { api, toast } = window.dbw;
+  const { toast } = window.dbw;
   const dbw = window.dbw;
   const $ = (sel, root = document) => root.querySelector(sel);
   const body = document.body;
@@ -333,14 +333,21 @@
     renderGrid();
     renderStats();
     renderActivity();
-    const [lists, links, quotes, stats, social, activity] = await Promise.allSettled([
-      dbw.loadList(), dbw.links.list(), dbw.quotes.list(), api('GET', '/api/stats'), dbw.social.list(), api('GET', '/api/activity'),
-    ]);
-    if (activity.status === 'fulfilled') H.activity = activity.value;
+    const [lists, links, quotes, social] = await Promise.allSettled([dbw.loadList(), dbw.links.list(), dbw.quotes.list(), dbw.social.list()]);
     if (social.status === 'fulfilled') H.social = social.value;
     if (links.status === 'fulfilled') H.links = links.value;
     if (quotes.status === 'fulfilled') H.quotes = quotes.value;
-    if (stats.status === 'fulfilled') H.stats = stats.value;
+    if (lists.status === 'fulfilled') {
+      // Stats and the activity graph come from each piece's version history.
+      try {
+        const pieces = await Promise.all(Object.entries(dbw.lists()).flatMap(([kind, docs]) =>
+          docs.map(async (doc) => ({ kind, doc, versions: await dbw.documents.versions(kind, doc.slug) }))));
+        H.stats = window.DBStats.writingStats(pieces);
+        H.activity = window.DBStats.activity(pieces, { links: H.links, quotes: H.quotes, posts: H.social });
+      } catch (err) {
+        console.error('stats:', err);
+      }
+    }
     if (body.dataset.page !== 'home') return;
     renderContinue();
     renderGrid();
