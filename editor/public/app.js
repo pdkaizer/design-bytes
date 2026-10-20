@@ -7,6 +7,8 @@
   const quotes = window.DBQuotes.createQuotes(window.DBBridge);
   const social = window.DBSocial.createSocial(window.DBBridge);
   const links = window.DBLinks.createLinks(window.DBBridge);
+  // Articles, thoughts, notes and journal entries, and their history, as files through the bridge.
+  const documents = window.DBDocuments.createDocuments(window.DBBridge);
   const $ = (sel) => document.querySelector(sel);
   const body = document.body;
   const ed = $('#editor');
@@ -137,7 +139,7 @@
   }
 
   async function loadList() {
-    [state.articles, state.thoughts, state.notes, state.journal] = await Promise.all(['articles', 'thoughts', 'notes', 'journal'].map((k) => api('GET', `/api/${k}`)));
+    [state.articles, state.thoughts, state.notes, state.journal] = await Promise.all(['articles', 'thoughts', 'notes', 'journal'].map((k) => documents.list(k)));
     renderList();
   }
 
@@ -256,7 +258,7 @@
     if (isOpen(kind, slug)) return;
     await save();
     try {
-      load(await api('GET', `/api/${kind}/${enc(slug)}`), kind);
+      load(await documents.read(kind, slug), kind);
       if (isMobile()) body.classList.remove('show-sidebar');
     } catch (err) {
       toast(`Couldn’t open ${slug}: ${err.message}`);
@@ -338,7 +340,7 @@
     setStatus('saving');
     state.saving = (async () => {
       try {
-        const r = await api('PUT', docUrl(doc), { content, mtime: force ? null : doc.mtime });
+        const r = await documents.save(doc.kind, doc.slug, content, { previous: { content: doc.saved, mtime: doc.mtime }, force });
         doc.saved = content;
         doc.mtime = r.mtime;
         const entry = listOf(doc.kind).find((a) => a.slug === doc.slug);
@@ -386,7 +388,7 @@
     const doc = state.doc;
     if (!doc || state.conflict || state.saving) return;
     try {
-      const a = await api('GET', docUrl(doc));
+      const a = await documents.read(doc.kind, doc.slug);
       if (state.doc !== doc || Math.abs(a.mtime - doc.mtime) < 1) return;
       if (a.content === doc.saved) { doc.mtime = a.mtime; return; }
       if (isDirty()) { showConflict(a); return; }
@@ -1177,7 +1179,7 @@
   async function loadVersions(selectId) {
     const slug = state.doc.slug;
     try {
-      hist.items = await api('GET', `${docUrl()}/history`);
+      hist.items = await documents.versions(state.doc.kind, slug);
     } catch (err) {
       hist.items = [];
       toast(`Couldn’t load history: ${err.message}`);
@@ -1251,7 +1253,7 @@
     $('#history-restore').disabled = false;
     $('#history-copy').disabled = false;
     try {
-      const r = await api('GET', `${docUrl()}/history/${enc(id)}`);
+      const r = await documents.version(state.doc.kind, state.doc.slug, id);
       if (hist.selected !== id) return;
       hist.content = r.content;
       renderVersion();
@@ -1343,7 +1345,7 @@
     try {
       // Keep the current text first, so restoring can itself be undone.
       await save();
-      await api('POST', `${docUrl()}/history`, { label: safety });
+      await documents.saveVersion(state.doc.kind, state.doc.slug, safety);
     } catch (err) {
       toast(`Couldn’t save your current text first, so nothing was restored: ${err.message}`);
       return;
@@ -1363,8 +1365,8 @@
     if (!label || !state.doc) return;
     try {
       await save();
-      const r = await api('POST', `${docUrl()}/history`, { label });
-      if (historyOpen()) await loadVersions(r.id);
+      const id = await documents.saveVersion(state.doc.kind, state.doc.slug, label);
+      if (historyOpen()) await loadVersions(id);
       toast(`Saved version “${label}”`);
     } catch (err) {
       toast(`Couldn’t save the version: ${err.message}`);
@@ -1563,7 +1565,7 @@
     let done = 0;
     for (const item of items) {
       try {
-        last = await api('POST', `/api/${kind}`, { content: item.content, filename: item.file.name, name: item.name, published: !!item.published, date: item.date });
+        last = await documents.create(kind, { content: item.content, filename: item.file.name, name: item.name, published: !!item.published, date: item.date });
         done++;
       } catch (err) {
         failed.push(`${item.file.name} (${err.message})`);
@@ -1942,15 +1944,19 @@
         if (!replace) return;
         r = await api('POST', `${docUrl(doc)}/publish`, { overwrite: true });
       }
-      if (state.doc === doc && r.content !== doc.saved) {
-        // The draft is now marked published (and may have gained a date:).
-        const { selectionStart, selectionEnd, scrollTop } = ed;
-        setFileText(r.content);
-        doc.saved = r.content;
-        ed.setSelectionRange(selectionStart, selectionEnd);
-        ed.scrollTop = scrollTop;
+      if (r.draft !== doc.saved) {
+        // The draft is now marked published (and may have gained a date:) — save that,
+        // keeping the old text in history.
+        const saved = await documents.save(doc.kind, doc.slug, r.draft, { previous: { content: doc.saved, mtime: doc.mtime } });
+        doc.mtime = saved.mtime;
+        if (state.doc === doc) {
+          const { selectionStart, selectionEnd, scrollTop } = ed;
+          setFileText(r.draft);
+          ed.setSelectionRange(selectionStart, selectionEnd);
+          ed.scrollTop = scrollTop;
+        }
+        doc.saved = r.draft;
       }
-      if (state.doc === doc) doc.mtime = r.mtime;
       refresh(true);
       await loadList();
       if (r.note) toast(r.note);
@@ -2210,7 +2216,7 @@
       // One entry a day: New opens today's, starting it if it isn't there yet.
       await save();
       try {
-        const entry = await api('POST', '/api/journal', {});
+        const entry = await documents.create('journal');
         await loadList();
         load(entry, 'journal');
         if (body.dataset.mode === 'preview') setMode('write');
@@ -2225,7 +2231,7 @@
       // Quick notes start straight away: no title needed, the first line becomes one.
       await save();
       try {
-        const n = await api('POST', '/api/notes', {});
+        const n = await documents.create('notes');
         await loadList();
         load(n, 'notes');
         if (body.dataset.mode === 'preview') setMode('write');
@@ -2245,7 +2251,7 @@
     if (!title) return;
     await save();
     try {
-      const a = await api('POST', `/api/${kind}`, { title });
+      const a = await documents.create(kind, { title });
       await loadList();
       load(a, kind);
       ed.focus();
@@ -2275,7 +2281,7 @@
     state.renaming = true;
     try {
       await save();
-      const a = await api('POST', `${docUrl(doc)}/rename`, { to });
+      const a = await documents.rename(doc.kind, doc.slug, to);
       if (state.doc !== doc) return;
       const renamed = a.slug !== doc.slug;
       const oldKey = docKey(doc);
@@ -2323,7 +2329,7 @@
     if (!ok) return;
     await save();
     try {
-      await api('DELETE', docUrl(doc));
+      await documents.trash(doc.kind, doc.slug);
       closeDoc();
       await loadList();
       const next = listOf(doc.kind)[0];
@@ -2532,12 +2538,7 @@
   window.addEventListener('beforeunload', (e) => {
     if (!isDirty() || state.conflict) return;
     // Best effort: flush the last keystrokes, and warn in case it doesn't land.
-    fetch(docUrl(), {
-      method: 'PUT',
-      keepalive: true,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: fileText(), mtime: state.doc.mtime }),
-    });
+    documents.save(state.doc.kind, state.doc.slug, fileText(), { previous: { content: state.doc.saved, mtime: state.doc.mtime }, keepalive: true }).catch(() => {});
     e.preventDefault();
   });
 
@@ -2568,7 +2569,7 @@
 
   // A few helpers for links.js, which runs the Links page.
   window.dbw = {
-    api, toast, prefs, ask, copyText, setView, quotes, social, links,
+    api, toast, prefs, ask, copyText, setView, quotes, social, links, documents,
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

@@ -299,7 +299,7 @@
       if (p.feature_image) fm.push(`feature_image: ${images.get(absolute(p.feature_image)) || absolute(p.feature_image)}`);
       const content = `---\n${fm.join('\n')}\n---\n\n${body}\n`;
       try {
-        last = await api('POST', '/api/articles', { content, filename: `${p.slug}.md`, name: p.slug, published: true, date: isoDay(p.published_at) });
+        last = await window.dbw.documents.create('articles', { content, filename: `${p.slug}.md`, name: p.slug, published: true, date: isoDay(p.published_at) });
       } catch (err) {
         failed.push(`${p.title} (${err.message})`);
       }

@@ -87,11 +87,13 @@ npm run build    # renders Published articles to dist/ (index + one page per art
 Node 22.9+ and one dependency, the Anthropic SDK (`npm install`).
 
 - `editor/lib/markdown.js` — the Markdown renderer, shared by the browser and the build
-- `editor/public/bridge.js` — the one place the page reaches outside itself: reading and saving data files, fetching a link's page details, and asking Claude (Alternatives, tag suggestions). A native Mac or iOS app would provide the same calls
+- `editor/public/bridge.js` — the one place the page reaches outside itself: reading and saving files in the writing folders and the data files, fetching a link's page details, and asking Claude (Alternatives, tag suggestions). A native Mac or iOS app would provide the same calls
+- `editor/lib/documents.js` — articles, thoughts, quick notes and journal entries, and their version history: listing, new and import, saving (refusing to overwrite a change made elsewhere), rename and trash, run in the page
+- `editor/lib/files.js` — the server's side of file access, limited to `articles/`, `thoughts/`, `quick-notes/` and `journal/`
 - `editor/lib/datastore.js` — a list of records in one data file, saved through the bridge without overwriting another tab's changes
 - `editor/lib/links.js`, `editor/lib/quotes.js`, `editor/lib/social.js` — the rules for saved links, quotes and social posts, run in the page
 - `editor/lib/pagedetails.js` — reads a page's title, description and site for a saved link (behind the bridge)
-- `editor/server.js` — local server and file API (listens on 127.0.0.1 only)
+- `editor/server.js` — local server for the bridge, plus publishing thoughts (git) and HTML export (listens on 127.0.0.1 only)
 - `editor/lib/suggest.js` — rewording and tag suggestions via the Claude API (behind the bridge)
 - `editor/build.js` — static site build
 - `editor/public/` — the editor UI; `article.css` is used by both the preview and published pages

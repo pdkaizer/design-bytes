@@ -10,7 +10,6 @@ const http = require('http');
 const fsp = require('fs').promises;
 const path = require('path');
 const { execFile } = require('child_process');
-const md = require('./lib/markdown');
 const store = require('./lib/store');
 const { renderArticle } = require('./lib/template');
 const { suggest, suggestTags } = require('./lib/suggest');
@@ -18,7 +17,7 @@ const { pageDetails } = require('./lib/pagedetails');
 const publisher = require('./lib/publish');
 const datafiles = require('./lib/datafiles');
 const { writingStats, activity } = require('./lib/stats');
-const history = require('./lib/history');
+const files = require('./lib/files');
 
 const PORT = Number(process.env.PORT) || 4321;
 const HOST = '127.0.0.1';
@@ -86,158 +85,48 @@ function isTrusted(req) {
 // ---------------------------------------------------------------------------
 // API
 
-// /api/articles/…, /api/thoughts/…, /api/notes/… and /api/journal/… — the same API over each folder.
-async function documentsApi(req, res, coll, slug, action, versionId) {
-  const method = req.method;
-  const isNote = coll.kind === 'notes' || coll.kind === 'journal'; // plain documents: no title, slug or status
-
-  if (!slug) {
-    if (method === 'GET') return json(res, 200, await coll.list());
-    if (method === 'POST') {
-      const { title, content: imported, filename, name: chosen, published: alreadyPublished, date } = await readJson(req);
-      const clean = String(title || '').trim();
-      let slugged;
-      let content;
-      if (typeof imported === 'string') {
-        // Importing a Markdown file: keep its text, name it after its title (or file name),
-        // and make sure an article has one of our statuses.
-        content = imported.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-        const stem = String(filename || '').replace(/\.[^.]*$/, '');
-        const name = String(chosen || '').trim() || md.title(content) || stem || (isNote ? 'note' : 'untitled');
-        slugged = await coll.uniqueSlug(store.isSlug(name) ? name.toLowerCase() : store.slugify(name));
-        if (!isNote) {
-          // Articles keep their title and file name in front matter.
-          content = md.liftTitle(content);
-          if (!md.title(content)) content = md.setMeta(content, 'title', stem || 'Untitled', { first: true });
-          content = md.setMeta(content, 'slug', slugged, { after: 'title' });
-          if (!md.STATUSES.includes(String(md.frontMatter(content).data.status || '').toLowerCase())) {
-            content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
-          }
-          // A piece that was published before it came into DB Writer keeps its real publish date.
-          if (alreadyPublished) {
-            content = md.setMeta(content, 'status', 'published');
-            if (/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) content = md.setMeta(content, 'date', date, { after: 'status' });
-          }
-        }
-      } else if (coll.kind === 'journal') {
-        // One entry a day, named by its date: New opens today's if it's already there.
-        const d = new Date();
-        const p = (n) => String(n).padStart(2, '0');
-        slugged = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-        if (await store.exists(coll.file(slugged))) return json(res, 200, await coll.read(slugged));
-        content = '';
-      } else if (isNote) {
-        // Quick notes are named by when they were made: 2026-10-04-1532.md
-        const d = new Date();
-        const p = (n) => String(n).padStart(2, '0');
-        slugged = await coll.uniqueSlug(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`);
-        content = clean ? `# ${clean}\n\n` : '';
-      } else {
-        slugged = await coll.uniqueSlug(store.slugify(clean || 'Untitled'));
-        content = md.setMeta('', 'title', clean || 'Untitled');
-        content = md.setMeta(content, 'slug', slugged);
-        if (coll.kind === 'thoughts') {
-          // The fields peterkaizer.com uses, ready to fill in.
-          content = md.setMeta(content, 'category', '');
-          content = md.setMeta(content, 'description', '');
-        }
-        content = md.setMeta(content, 'status', md.DEFAULT_STATUS);
-      }
-      // Record when it was added (an imported file keeps a created: date it already has).
-      if (!md.created(content)) content = md.setMeta(content, 'created', md.formatStamp());
-      await fsp.mkdir(coll.dir, { recursive: true });
-      await store.writeAtomic(coll.file(slugged), content);
-      return json(res, 201, await coll.read(slugged));
+// /api/files — plain file access to the writing folders, for the bridge.
+async function filesApi(req, res, url, action) {
+  try {
+    if (action === 'move' && req.method === 'POST') {
+      const { from, to } = await readJson(req);
+      return json(res, 200, await files.move(from, to));
     }
+    if (action) throw httpError(404, 'Not found');
+    if (req.method === 'GET' && url.searchParams.has('dir')) {
+      return json(res, 200, { entries: await files.list(url.searchParams.get('dir'), { content: url.searchParams.has('content') }) });
+    }
+    if (req.method === 'GET') return json(res, 200, await files.read(url.searchParams.get('path')));
+    if (req.method === 'PUT') {
+      const { path: rel, content, mtime, create } = await readJson(req);
+      return json(res, 200, await files.write(rel, content, { mtime, create: !!create }));
+    }
+    if (req.method === 'DELETE') return json(res, 200, await files.remove(url.searchParams.get('path')));
     throw httpError(405, 'Method not allowed');
+  } catch (err) {
+    if (err instanceof files.FileError) return json(res, err.status, { error: err.message, ...(err.current && { current: err.current }), ...(err.exists && { exists: true }) });
+    throw err;
   }
+}
 
-  if (!store.isSlug(slug)) throw httpError(400, 'Invalid name');
-  const file = coll.file(slug);
+// /api/thoughts/<slug>/publish and /api/<kind>/<slug>/export — what documents still need the server for.
+async function documentsApi(req, res, coll, slug, action) {
+  if (!slug || !store.isSlug(slug)) throw httpError(400, 'Invalid name');
 
-  if (!action && method === 'GET') return json(res, 200, await coll.read(slug));
-
-  if (!action && method === 'PUT') {
-    const { content, mtime } = await readJson(req);
-    if (typeof content !== 'string') throw httpError(400, 'content must be a string');
-    const stat = await fsp.stat(file).catch(() => null);
-    // Someone (another editor, git, VS Code) changed the file since we loaded it.
-    if (stat && mtime != null && Math.abs(stat.mtimeMs - mtime) > 0.5) {
-      return json(res, 409, { error: 'Changed on disk', ...(await coll.read(slug)) });
-    }
-    // Keep the text that's about to be replaced (at most every few minutes).
-    if (stat) await history.beforeWrite(coll, slug, file, stat).catch((err) => console.error('history:', err));
-    await store.writeAtomic(file, content);
-    return json(res, 200, { slug, mtime: (await fsp.stat(file)).mtimeMs });
-  }
-
-  if (!action && method === 'DELETE') {
-    await fsp.mkdir(coll.trash, { recursive: true });
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    await fsp.rename(file, path.join(coll.trash, `${slug}-${stamp}.md`));
-    await history.trash(coll, slug, stamp).catch((err) => console.error('history:', err));
-    return json(res, 200, { ok: true, trashed: `${coll.folder}/.trash/${slug}-${stamp}.md` });
-  }
-
-  if (action === 'rename' && method === 'POST') {
-    const { to } = await readJson(req);
-    const next = store.isSlug(String(to || '')) ? String(to).toLowerCase() : store.slugify(to || '');
-    if (next !== slug) {
-      if (await store.exists(coll.file(next))) throw httpError(409, `${coll.folder}/${next}.md already exists`);
-      await fsp.access(file);
-      await fsp.rename(file, coll.file(next));
-      await history.rename(coll, slug, next).catch((err) => console.error('history:', err));
-      const key = (s) => (coll.kind === 'thoughts' ? `thoughts/${s}` : s); // how links refer to it
-    }
-    if (!isNote) {
-      // Keep the slug: line in step with the file name.
-      const { content } = await coll.read(next);
-      if (md.frontMatter(content).data.slug !== next) {
-        await store.writeAtomic(coll.file(next), md.setMeta(content, 'slug', next, { after: 'title' }));
-      }
-    }
-    return json(res, 200, await coll.read(next));
-  }
-
-  if (action === 'history') {
-    // GET  …/history        → list of versions, newest first
-    // GET  …/history/<id>   → one version's text
-    // POST …/history        → save the current file as a (named) version
-    if (!versionId && method === 'GET') return json(res, 200, await history.list(coll, slug));
-    if (versionId && method === 'GET') {
-      if (!history.isId(versionId)) throw httpError(400, 'Invalid version');
-      return json(res, 200, { id: versionId, content: await history.read(coll, slug, versionId) });
-    }
-    if (!versionId && method === 'POST') {
-      const { label } = await readJson(req);
-      const { content, mtime } = await coll.read(slug);
-      const id = await history.snapshot(coll, slug, content, mtime, String(label || '').trim().slice(0, 120));
-      return json(res, 201, { id });
-    }
-    throw httpError(405, 'Method not allowed');
-  }
-
-  if (action === 'publish' && method === 'POST' && coll.kind === 'thoughts') {
+  if (action === 'publish' && req.method === 'POST' && coll.kind === 'thoughts') {
+    // Writes the post into the 11ty site, commits and pushes. The page saves the
+    // updated draft (now marked published, maybe with a date) itself.
     const { overwrite } = await readJson(req);
-    const stat = await fsp.stat(file);
     const { content } = await coll.read(slug);
-    let result;
     try {
-      result = await publisher.publish(slug, content, { overwrite: !!overwrite });
+      return json(res, 200, await publisher.publish(slug, content, { overwrite: !!overwrite }));
     } catch (err) {
       if (err.status === 409) return json(res, 409, { error: err.message, needsConfirm: true });
       throw err;
     }
-    // The draft now says published (and has a date) — keep the old text in history.
-    if (result.draft !== content) {
-      await history.beforeWrite(coll, slug, file, stat).catch((err) => console.error('history:', err));
-      await store.writeAtomic(file, result.draft);
-    }
-    const saved = await coll.read(slug);
-    return json(res, 200, { ...result, draft: undefined, content: saved.content, mtime: saved.mtime });
   }
 
-  if (action === 'export' && method === 'GET') {
+  if (action === 'export' && req.method === 'GET') {
     const { content, mtime } = await coll.read(slug);
     const html = await inlineImages(renderArticle(content, { mtime }));
     return send(res, 200, html, {
@@ -334,7 +223,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js'];
+const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
@@ -373,11 +262,12 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, await suggestTags({ title: String(title || ''), url: String(href || ''), description: String(description || ''), note: String(note || ''), current: words(current), existing: words(existing) }));
       }
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
+      if (parts[1] === 'files' && parts.length <= 3) return await filesApi(req, res, url, parts[2]);
       if (parts[1] === 'stats' && parts.length === 2 && req.method === 'GET') return json(res, 200, await writingStats());
       if (parts[1] === 'activity' && parts.length === 2 && req.method === 'GET') return json(res, 200, await activity());
       if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
       const coll = store.collection(parts[1]);
-      if (coll && parts.length <= 5) return await documentsApi(req, res, coll, parts[2], parts[3], parts[4]);
+      if (coll && parts.length === 4) return await documentsApi(req, res, coll, parts[2], parts[3]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
       if (parts[1] === 'images' && parts[2] === 'fetch' && parts.length === 3 && req.method === 'POST') return await fetchImage(req, res);
       if (parts[1] === 'suggest' && parts.length === 2 && req.method === 'POST') {
