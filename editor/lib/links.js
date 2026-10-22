@@ -57,7 +57,8 @@
   const str = (s, max) => String(s || '').trim().slice(0, max);
 
   // bridge also needs pageDetails(url) → { title, description, site } and
-  // suggestTags({ title, url, description, note, current, existing }) → { tags }.
+  // suggestTags({ title, url, description, note, current, existing }) → { tags }
+  // (the page supplies that one from lib/claude.js).
   function createLinks(bridge, { now = () => Date.now(), newId = () => crypto.randomUUID() } = {}) {
     const store = createStore(bridge, 'links', 'links');
     const duplicateOf = (links, url) => links.find((l) => sameKey(l.url) === sameKey(url));

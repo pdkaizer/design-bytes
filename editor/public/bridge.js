@@ -58,10 +58,9 @@
     // A web page's { title, description, site } (any of them may be missing).
     pageDetails: (url) => call('POST', '/api/page-details', { url }),
 
-    // Claude, with the API key kept outside the page.
-    // Five rewordings of a selection: { suggestions: [...] }.
-    suggestAlternatives: (request) => call('POST', '/api/suggest', request),
-    // Subject tags for a link: { tags: [...] }.
-    suggestTags: (link) => call('POST', '/api/suggest-tags', link),
+    // Claude, with the API key kept outside the page. The page writes the request
+    // (lib/claude.js): { model, system, prompt, schema, maxTokens, effort }; the answer is
+    // { text (JSON matching schema), model, stopReason }.
+    askClaude: (request) => call('POST', '/api/claude', request),
   };
 })();

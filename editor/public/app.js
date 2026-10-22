@@ -6,7 +6,9 @@
   // Saved quotes, social posts and links, read and written through the bridge.
   const quotes = window.DBQuotes.createQuotes(window.DBBridge);
   const social = window.DBSocial.createSocial(window.DBBridge);
-  const links = window.DBLinks.createLinks(window.DBBridge);
+  // Claude's suggestions (rewordings, link tags), asked through the bridge.
+  const claude = window.DBClaude.createClaude(window.DBBridge);
+  const links = window.DBLinks.createLinks({ ...window.DBBridge, suggestTags: claude.suggestTags });
   // Articles, thoughts, notes and journal entries, and their history, as files through the bridge.
   const documents = window.DBDocuments.createDocuments(window.DBBridge);
   const $ = (sel) => document.querySelector(sel);
@@ -875,7 +877,7 @@
 
     const id = ++sug.request;
     try {
-      const r = await window.DBBridge.suggestAlternatives({
+      const r = await claude.suggestAlternatives({
         selection: range.text,
         ...paragraphAround(range.start, range.end),
         title: md.title(ed.value),
@@ -2576,6 +2578,7 @@
   // A few helpers for links.js, which runs the Links page.
   window.dbw = {
     toast, prefs, ask, copyText, setView, quotes, social, links, documents,
+    saveNow: () => save(), // the Mac app calls this before quitting
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

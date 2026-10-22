@@ -11,7 +11,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const { execFile } = require('child_process');
 const store = require('./lib/store');
-const { suggest, suggestTags } = require('./lib/suggest');
+const { askClaude } = require('./lib/anthropic');
 const { pageDetails } = require('./lib/pagedetails');
 const publisher = require('./lib/publish');
 const datafiles = require('./lib/datafiles');
@@ -193,7 +193,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js', '/lib/template.js'];
+const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js', '/lib/template.js', '/lib/claude.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
@@ -226,11 +226,6 @@ const server = http.createServer(async (req, res) => {
         try { new URL(href); } catch { throw httpError(400, 'Invalid address'); }
         return json(res, 200, await pageDetails(href));
       }
-      if (parts[1] === 'suggest-tags' && parts.length === 2 && req.method === 'POST') {
-        const { title, url: href, description, note, current, existing } = await readJson(req);
-        const words = (list) => (Array.isArray(list) ? list.map(String).slice(0, 500) : []);
-        return json(res, 200, await suggestTags({ title: String(title || ''), url: String(href || ''), description: String(description || ''), note: String(note || ''), current: words(current), existing: words(existing) }));
-      }
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
       if (parts[1] === 'files' && parts.length <= 3) return await filesApi(req, res, url, parts[2]);
       if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
@@ -238,9 +233,7 @@ const server = http.createServer(async (req, res) => {
       if (coll && parts.length === 4) return await documentsApi(req, res, coll, parts[2], parts[3]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
       if (parts[1] === 'images' && parts[2] === 'fetch' && parts.length === 3 && req.method === 'POST') return await fetchImage(req, res);
-      if (parts[1] === 'suggest' && parts.length === 2 && req.method === 'POST') {
-        return json(res, 200, await suggest(await readJson(req)));
-      }
+      if (parts[1] === 'claude' && parts.length === 2 && req.method === 'POST') return json(res, 200, await askClaude(await readJson(req)));
       throw httpError(404, 'Not found');
     }
     return await serveStatic(req, res, pathname);
