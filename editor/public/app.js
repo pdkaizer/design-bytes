@@ -8,6 +8,8 @@
   const social = window.DBSocial.createSocial(window.DBBridge);
   // Claude's suggestions (rewordings, link tags), asked through the bridge.
   const claude = window.DBClaude.createClaude(window.DBBridge);
+  // Publishing thoughts to peterkaizer.com: the rules here, the files and git through the bridge.
+  const thoughtSite = window.DBThoughtSite.createThoughtSite(window.DBBridge);
   const links = window.DBLinks.createLinks({ ...window.DBBridge, suggestTags: claude.suggestTags });
   // Articles, thoughts, notes and journal entries, and their history, as files through the bridge.
   const documents = window.DBDocuments.createDocuments(window.DBBridge);
@@ -1866,7 +1868,7 @@
   let siteCategories = null;
   async function loadCategories() {
     if (siteCategories) return siteCategories;
-    try { siteCategories = await window.DBBridge.siteCategories(); } catch { siteCategories = []; }
+    try { siteCategories = await thoughtSite.categories(); } catch { siteCategories = []; }
     return siteCategories;
   }
   function syncCategory(text) {
@@ -1916,7 +1918,7 @@
     try {
       let r;
       try {
-        r = await window.DBBridge.publishThought(doc.slug);
+        r = await thoughtSite.publish(doc.slug, (await documents.read(doc.kind, doc.slug)).content);
       } catch (err) {
         if (err.status !== 409 || !err.data?.needsConfirm) throw err;
         const replace = await ask({
@@ -1925,7 +1927,7 @@
           confirm: 'Replace it', danger: true,
         });
         if (!replace) return;
-        r = await window.DBBridge.publishThought(doc.slug, { overwrite: true });
+        r = await thoughtSite.publish(doc.slug, (await documents.read(doc.kind, doc.slug)).content, { overwrite: true });
       }
       if (r.draft !== doc.saved) {
         // The draft is now marked published (and may have gained a date:) — save that,

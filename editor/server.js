@@ -13,7 +13,7 @@ const { execFile } = require('child_process');
 const store = require('./lib/store');
 const { askClaude } = require('./lib/anthropic');
 const { pageDetails } = require('./lib/pagedetails');
-const publisher = require('./lib/publish');
+const site = require('./lib/site');
 const datafiles = require('./lib/datafiles');
 const files = require('./lib/files');
 
@@ -107,24 +107,23 @@ async function filesApi(req, res, url, action) {
   }
 }
 
-// /api/thoughts/<slug>/publish — publishing a thought runs git, so it stays on the server.
-async function documentsApi(req, res, coll, slug, action) {
-  if (!slug || !store.isSlug(slug)) throw httpError(400, 'Invalid name');
-
-  if (action === 'publish' && req.method === 'POST' && coll.kind === 'thoughts') {
-    // Writes the post into the 11ty site, commits and pushes. The page saves the
-    // updated draft (now marked published, maybe with a date) itself.
-    const { overwrite } = await readJson(req);
-    const { content } = await coll.read(slug);
-    try {
-      return json(res, 200, await publisher.publish(slug, content, { overwrite: !!overwrite }));
-    } catch (err) {
-      if (err.status === 409) return json(res, 409, { error: err.message, needsConfirm: true });
-      throw err;
+// /api/site/… — peterkaizer.com's thoughts, for publishing (the rules run in the page).
+async function siteApi(req, res, part) {
+  try {
+    if (part === 'thoughts' && req.method === 'GET') return json(res, 200, await site.siteThoughts());
+    if (part === 'thoughts' && req.method === 'PUT') {
+      const { name, content } = await readJson(req);
+      return json(res, 200, await site.writeSiteThought(name, content));
     }
+    if (part === 'commit' && req.method === 'POST') {
+      const { name, message } = await readJson(req);
+      return json(res, 200, await site.commitSiteThought(name, message));
+    }
+    throw httpError(404, 'Not found');
+  } catch (err) {
+    if (err instanceof site.SiteError) return json(res, err.status, { error: err.message });
+    throw err;
   }
-
-  throw httpError(404, 'Not found');
 }
 
 // /api/data/<name> — whole data files the page reads and writes through the bridge.
@@ -193,7 +192,7 @@ async function fetchImage(req, res) {
 // ---------------------------------------------------------------------------
 // Static files
 
-const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js', '/lib/template.js', '/lib/claude.js'];
+const SHARED = ['/lib/markdown.js', '/lib/documents.js', '/lib/datastore.js', '/lib/quotes.js', '/lib/social.js', '/lib/links.js', '/lib/stats.js', '/lib/template.js', '/lib/claude.js', '/lib/thoughtsite.js'];
 
 async function serveStatic(req, res, pathname) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw httpError(405, 'Method not allowed');
@@ -228,9 +227,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
       if (parts[1] === 'files' && parts.length <= 3) return await filesApi(req, res, url, parts[2]);
-      if (parts[1] === 'site' && parts[2] === 'categories' && req.method === 'GET') return json(res, 200, await publisher.categories());
-      const coll = store.collection(parts[1]);
-      if (coll && parts.length === 4) return await documentsApi(req, res, coll, parts[2], parts[3]);
+      if (parts[1] === 'site' && parts.length === 3) return await siteApi(req, res, parts[2]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
       if (parts[1] === 'images' && parts[2] === 'fetch' && parts.length === 3 && req.method === 'POST') return await fetchImage(req, res);
       if (parts[1] === 'claude' && parts.length === 2 && req.method === 'POST') return json(res, 200, await askClaude(await readJson(req)));

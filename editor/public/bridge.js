@@ -48,12 +48,13 @@
     // Downloads a web image, saving it as `name` (or reusing an identical copy): { name, path, reused }.
     downloadImage: (url, name) => call('POST', '/api/images/fetch', { url, name }),
 
-    // peterkaizer.com (the 11ty site set by THOUGHTS_SITE). Mac only: publishing runs git.
-    // The categories its thoughts use: [name, …].
-    siteCategories: () => call('GET', '/api/site/categories'),
-    // Writes thoughts/<slug>.md into the site, commits and pushes: { draft, file, committed, pushed, note }.
-    // Fails with status 409 (data.needsConfirm) if the site has a different post that DB Writer didn't publish.
-    publishThought: (slug, { overwrite = false } = {}) => call('POST', `/api/thoughts/${encodeURIComponent(slug)}/publish`, { overwrite }),
+    // peterkaizer.com (the 11ty site set by THOUGHTS_SITE). The rules are in lib/thoughtsite.js.
+    // The posts in its src/thoughts: [{ name, content }]. Fails with 503 if the site isn't set up.
+    siteThoughts: () => call('GET', '/api/site/thoughts'),
+    // Writes src/thoughts/<name>.
+    writeSiteThought: (name, content) => call('PUT', '/api/site/thoughts', { name, content }),
+    // Commits just that file (if it changed) and pushes: { committed, pushed, note }.
+    commitSiteThought: (name, message) => call('POST', '/api/site/commit', { name, message }),
 
     // A web page's { title, description, site } (any of them may be missing).
     pageDetails: (url) => call('POST', '/api/page-details', { url }),

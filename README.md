@@ -95,6 +95,7 @@ Node 22.9+ and one dependency, the Anthropic SDK (`npm install`).
 - `editor/lib/links.js`, `editor/lib/quotes.js`, `editor/lib/social.js` — the rules for saved links, quotes and social posts, run in the page
 - `editor/lib/pagedetails.js` — reads a page's title, description and site for a saved link (behind the bridge)
 - `editor/server.js` — local server that provides the bridge (listens on 127.0.0.1 only); publishing thoughts runs git, so it works on the Mac only
+- `editor/lib/thoughtsite.js` — publishing a thought: the site's version of a draft, its date, the check before replacing a post, categories (run in the page); `editor/lib/site.js` is the server's side (the site's files and git)
 - `editor/lib/claude.js` — what DB Writer asks Claude (rewordings, link tags) and how it reads the answers, run in the page
 - `editor/lib/anthropic.js` — the server's side of asking Claude: sends the page's request with your API key
 - `editor/build.js` — static site build
