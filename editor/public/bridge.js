@@ -53,8 +53,15 @@
     siteThoughts: () => call('GET', '/api/site/thoughts'),
     // Writes src/thoughts/<name>.
     writeSiteThought: (name, content) => call('PUT', '/api/site/thoughts', { name, content }),
-    // Commits just that file (if it changed) and pushes: { committed, pushed, note }.
-    commitSiteThought: (name, message) => call('POST', '/api/site/commit', { name, message }),
+    // Writes a social preview image to src/assets/images/thoughts/<name> (a File or Blob).
+    writeSiteImage: async (name, blob) => {
+      const res = await fetch(`/api/site/images?${q({ name })}`, { method: 'PUT', headers: { 'Content-Type': blob.type || 'application/octet-stream' }, body: blob });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw Object.assign(new Error(json.error || res.statusText), { status: res.status, data: json });
+      return json;
+    },
+    // Commits just that post and its image (if they changed) and pushes: { committed, pushed, note }.
+    commitSiteThought: (name, message, image = null) => call('POST', '/api/site/commit', { name, message, image }),
 
     // A web page's { title, description, site } (any of them may be missing).
     pageDetails: (url) => call('POST', '/api/page-details', { url }),

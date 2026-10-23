@@ -284,7 +284,8 @@
     loadArtLinks();
     renderArtQuotes();
     loadArtQuotes();
-    if (kind === 'thoughts') loadCategories().then(() => syncCategory(ed.value));
+    if (kind === 'thoughts') { loadCategories().then(() => syncCategory(ed.value)); syncOg(ed.value); }
+    if (!og.panel.hidden) toggleOgPanel(false);
   }
 
   function closeDoc() {
@@ -428,7 +429,7 @@
       }
       body.dataset.status = status || '';
       syncPubDate(text);
-      if (!isNote && state.doc.kind === 'thoughts') syncCategory(text);
+      if (!isNote && state.doc.kind === 'thoughts') { syncCategory(text); syncOg(text); }
 
       const entry = listOf(state.doc.kind).find((a) => a.slug === state.doc.slug);
       const createdMs = added ? added.ms : null;
@@ -1894,6 +1895,73 @@
     }
     setMetaInEditor('category', value, { after: 'slug' });
     syncCategory(ed.value);
+  });
+
+  // The thought's social preview image (ogImage in its front matter). A chosen image
+  // is saved in images/ like any other; publishing copies it into the site.
+  const og = { wrap: $('#og-wrap'), btn: $('#og-btn'), panel: $('#og-panel'), picker: $('#og-picker') };
+  const ogPath = (text) => String(md.frontMatter(text).data.ogImage || '').trim();
+  function syncOg(text) {
+    if (state.doc?.kind !== 'thoughts') return;
+    const path = ogPath(text);
+    og.btn.classList.toggle('unset', !path);
+    og.btn.title = path ? `Social preview image: ${path}` : 'Social preview image on peterkaizer.com (none — the site uses its default)';
+    if (!og.panel.hidden) renderOgPanel();
+  }
+  function renderOgPanel() {
+    const path = ogPath(ed.value);
+    const info = $('#og-info');
+    const preview = $('#og-preview');
+    $('#og-remove').hidden = !path;
+    $('#og-choose').textContent = path ? 'Choose another image…' : 'Choose image…';
+    if (!path) {
+      preview.replaceChildren('No image');
+      info.textContent = 'The site uses its default preview. Social previews look best at 1200 × 630.';
+    } else if (path.startsWith('../images/')) {
+      const img = new Image();
+      img.alt = '';
+      img.onload = () => {
+        const ok = img.naturalWidth >= 1200 && Math.abs(img.naturalWidth / img.naturalHeight - 1200 / 630) < 0.08;
+        info.replaceChildren(`${path.slice(10)} · ${img.naturalWidth} × ${img.naturalHeight}`,
+          ...(ok ? [] : [document.createElement('br'), Object.assign(document.createElement('span'), { className: 'warn', textContent: 'Social previews look best at 1200 × 630.' })]),
+          document.createElement('br'), 'Publishing copies it into the site.');
+      };
+      img.onerror = () => { preview.replaceChildren('Image not found'); info.textContent = `${path} isn’t in images/ — choose it again.`; };
+      img.src = path.replace(/^\.\.\//, '/');
+      preview.replaceChildren(img);
+      info.textContent = path.slice(10);
+    } else {
+      preview.replaceChildren('On the site');
+      info.textContent = `Uses ${path} from peterkaizer.com.`;
+    }
+  }
+  function toggleOgPanel(open = og.panel.hidden) {
+    og.panel.hidden = !open;
+    og.btn.setAttribute('aria-expanded', String(open));
+    if (open) renderOgPanel();
+  }
+  og.btn.addEventListener('click', (e) => { e.stopPropagation(); toggleOgPanel(); });
+  document.addEventListener('click', (e) => { if (!og.panel.hidden && !e.target.closest('#og-wrap')) toggleOgPanel(false); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !og.panel.hidden) { toggleOgPanel(false); og.btn.focus(); } });
+  $('#og-choose').addEventListener('click', () => og.picker.click());
+  $('#og-remove').addEventListener('click', () => {
+    setMetaInEditor('ogImage', '', { after: 'description' });
+    syncOg(ed.value);
+    toast('Removed the social preview image');
+  });
+  og.picker.addEventListener('change', async () => {
+    const file = og.picker.files[0];
+    og.picker.value = '';
+    if (!file || !state.doc) return;
+    const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    try {
+      const r = await window.DBBridge.saveImage(file, `${state.doc.slug}-og.${ext}`);
+      setMetaInEditor('ogImage', r.path, { after: 'description' });
+      syncOg(ed.value);
+      toast(`Social preview image: images/${r.name}`);
+    } catch (err) {
+      toast(`Couldn’t add the image: ${err.message}`);
+    }
   });
 
   async function publishThought() {

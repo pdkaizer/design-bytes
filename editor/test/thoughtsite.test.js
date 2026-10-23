@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createThoughtSite, prepare, siteVersion, categories } = require('../lib/thoughtsite');
+const { createThoughtSite, prepare, ogImageFor, siteVersion, categories } = require('../lib/thoughtsite');
 
 const DRAFT = `---
 title: Restraint
@@ -69,4 +69,30 @@ test('publish writes only when changed, then commits; categories fall back when 
   const broken = createThoughtSite({ siteThoughts: async () => { throw Object.assign(new Error('no site'), { status: 503 }); } });
   assert.ok((await broken.categories()).includes('Layout'));
   await assert.rejects(broken.publish('x', DRAFT), { status: 503 });
+});
+
+test('a chosen preview image is copied into the site and committed with the post', async () => {
+  const draft = DRAFT.replace('description: Less, but better.\n', 'description: Less, but better.\nogImage: ../images/restraint-og.png\n');
+  assert.deepEqual(ogImageFor('restraint', draft), { local: '../images/restraint-og.png', name: 'restraint.png', sitePath: '/assets/images/thoughts/restraint.png' });
+  assert.equal(ogImageFor('x', '---\nogImage: /assets/images/thoughts/x.png\n---\n'), null, 'a path in the site is left alone');
+  assert.equal(ogImageFor('x', '---\nogImage: ../images/notes.txt\n---\n'), null);
+  assert.equal(ogImageFor('x', '---\nogImage: ../images/a.JPEG\n---\n').name, 'x.jpg');
+
+  const calls = [];
+  const files = new Map();
+  const bridge = {
+    async siteThoughts() { return [...files].map(([name, content]) => ({ name, content })); },
+    async writeSiteThought(name, content) { calls.push(['post', name]); files.set(name, content); },
+    async writeSiteImage(name, blob) { calls.push(['image', name, blob]); },
+    async commitSiteThought(name, message, image) { calls.push(['commit', name, image]); return { committed: true, pushed: true }; },
+  };
+  const site = createThoughtSite(bridge, { now: () => new Date(2026, 9, 23), readImage: async (path) => `bytes of ${path}` });
+  const r = await site.publish('restraint', draft);
+  assert.deepEqual(calls, [['image', 'restraint.png', 'bytes of ../images/restraint-og.png'], ['post', 'restraint.md'], ['commit', 'restraint.md', 'restraint.png']]);
+  assert.match(files.get('restraint.md'), /ogImage: \/assets\/images\/thoughts\/restraint\.png/, 'the site points at its own copy');
+  assert.match(r.draft, /ogImage: \.\.\/images\/restraint-og\.png/, 'the draft keeps DB Writer’s copy');
+  // Republishing the same thing: nothing new to write for the post.
+  calls.length = 0;
+  await site.publish('restraint', r.draft);
+  assert.deepEqual(calls.map((c) => c[0]), ['image', 'commit']);
 });

@@ -58,7 +58,7 @@ test('a new article gets title, slug, status and created in its front matter', a
   assert.equal(b.slug, 'the-conductors-role-2');
   assert.match(b.content, /slug: the-conductors-role-2/);
   const t = await docs.create('thoughts', { title: 'Craft' });
-  assert.match(t.content, /category: \ndescription: \n/);
+  assert.match(t.content, /category: \ndescription: \nogImage: \n/);
 });
 
 test('notes are named for when they were made; the journal keeps one entry a day', async () => {

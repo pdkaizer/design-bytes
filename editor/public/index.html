@@ -57,6 +57,16 @@
         <span class="visually-hidden">Category</span>
         <select id="category-select"></select>
       </label>
+      <div class="menu-wrap og-pick" id="og-wrap">
+        <button class="stage og-btn unset" id="og-btn" title="Social preview image on peterkaizer.com" aria-haspopup="dialog" aria-expanded="false">OG image</button>
+        <div class="menu og-panel" id="og-panel" role="dialog" aria-label="Social preview image" hidden>
+          <div class="og-preview" id="og-preview"></div>
+          <p class="og-info" id="og-info"></p>
+          <button id="og-choose">Choose image…</button>
+          <button id="og-remove" class="danger">Remove</button>
+        </div>
+        <input type="file" id="og-picker" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
       <button class="btn primary publish-btn" id="publish-btn" title="Write this thought to your 11ty site, then commit and push so it goes live">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3.5M6.5 7 10 3.5 13.5 7"/><path d="M3.5 12.5v2a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-2"/></svg><span>Publish to peterkaizer.com</span>
       </button>

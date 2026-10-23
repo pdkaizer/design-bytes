@@ -2,9 +2,10 @@
  * Publishing Thoughts to peterkaizer.com — an 11ty site in its own repo (set by
  * THOUGHTS_SITE). The rules live here and run in the page (window.DBThoughtSite)
  * and in Node (require, for tests): the site's version of a draft, its date, the
- * check before replacing a post, and the categories in use. The bridge does the
- * rest — listing the site's thoughts, writing one, and committing and pushing it
- * — so the same rules work with git on the Mac and, later, GitHub's API on iOS.
+ * check before replacing a post, its social preview image, and the categories in
+ * use. The bridge does the rest — listing the site's thoughts, writing a post and
+ * its image, and committing and pushing them — so the same rules work with git on
+ * the Mac and, later, GitHub's API on iOS.
  */
 (function (root, factory) {
   const api = factory(typeof module === 'object' && module.exports ? require('./markdown') : root.DBMarkdown);
@@ -43,12 +44,24 @@
     return `---\n${kept.join('\n')}\n---\n\n${body}\n`;
   }
 
+  // The social preview image a draft names, if it's one of DB Writer's images
+  // (ogImage: ../images/<name>): publishing copies it into the site as
+  // src/assets/images/thoughts/<slug>.<ext>. A path already in the site is left alone.
+  function ogImageFor(slug, draftText) {
+    const og = String(md.frontMatter(draftText).data.ogImage || '').trim();
+    const m = /^\.\.\/images\/([^/?#]+\.(png|jpe?g|webp|gif))$/i.exec(og);
+    if (!m) return null;
+    const ext = m[2].toLowerCase().replace('jpeg', 'jpg');
+    return { local: og, name: `${slug}.${ext}`, sitePath: `/assets/images/thoughts/${slug}.${ext}` };
+  }
+
   // What publishing `draftText` as <slug>.md does, given the site's current file
   // (null if there isn't one): { draft, content, changed, message }, where draft is
   // the updated draft (status: published, date: filled in if missing) and content
-  // the site's file. Fails with 409 (data.needsConfirm) rather than replace a
-  // different post DB Writer didn't publish, unless overwrite is set.
-  function prepare(slug, draftText, existing, { overwrite = false, date = today() } = {}) {
+  // the site's file (with ogImage pointing at the site's copy when it has one).
+  // Fails with 409 (data.needsConfirm) rather than replace a different post DB
+  // Writer didn't publish, unless overwrite is set.
+  function prepare(slug, draftText, existing, { overwrite = false, date = today(), ogImage = null } = {}) {
     const data = md.frontMatter(draftText).data;
     const title = String(data.title || '').trim();
     if (!title) throw fail(400, 'Give the thought a title: before publishing.');
@@ -59,7 +72,7 @@
       const after = data.description !== undefined ? 'description' : data.category !== undefined ? 'category' : 'title';
       draft = md.setMeta(draft, 'date', date, { after });
     }
-    const content = siteVersion(draft);
+    const content = siteVersion(ogImage ? md.setMeta(draft, 'ogImage', ogImage) : draft);
 
     // Don't silently replace a post that DB Writer didn't publish.
     const ownedHere = md.status(draftText) === 'published';
@@ -86,9 +99,16 @@
   }
 
   // bridge: siteThoughts() → [{ name, content }] (fails with 503 if the site isn't set
-  // up), writeSiteThought(name, content), commitSiteThought(name, message) →
-  // { committed, pushed, note }.
-  function createThoughtSite(bridge, { now = () => new Date() } = {}) {
+  // up), writeSiteThought(name, content), writeSiteImage(name, blob),
+  // commitSiteThought(name, message, image) → { committed, pushed, note }.
+  // readImage(path) gives an image's bytes (a Blob) from DB Writer's images/.
+  const fetchImage = async (path) => {
+    const res = await fetch(path.replace(/^\.\.\//, '/'));
+    if (!res.ok) throw fail(404, `The social preview image ${path} isn’t there — choose it again.`);
+    return res.blob();
+  };
+
+  function createThoughtSite(bridge, { now = () => new Date(), readImage = fetchImage } = {}) {
     return {
       async categories() {
         try {
@@ -101,13 +121,15 @@
       async publish(slug, draftText, { overwrite = false } = {}) {
         const name = `${slug}.md`;
         const existing = (await bridge.siteThoughts()).find((f) => f.name === name)?.content ?? null;
-        const p = prepare(slug, draftText, existing, { overwrite, date: today(now()) });
+        const image = ogImageFor(slug, draftText);
+        const p = prepare(slug, draftText, existing, { overwrite, date: today(now()), ogImage: image?.sitePath });
+        if (image) await bridge.writeSiteImage(image.name, await readImage(image.local));
         if (p.changed) await bridge.writeSiteThought(name, p.content);
-        const result = await bridge.commitSiteThought(name, p.message);
+        const result = await bridge.commitSiteThought(name, p.message, image?.name || null);
         return { draft: p.draft, file: `src/thoughts/${name}`, committed: !!result.committed, pushed: !!result.pushed, note: result.note || '' };
       },
     };
   }
 
-  return { createThoughtSite, prepare, siteVersion, categories, DEFAULT_CATEGORIES };
+  return { createThoughtSite, prepare, ogImageFor, siteVersion, categories, DEFAULT_CATEGORIES };
 });

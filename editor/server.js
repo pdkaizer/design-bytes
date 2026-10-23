@@ -108,16 +108,19 @@ async function filesApi(req, res, url, action) {
 }
 
 // /api/site/… — peterkaizer.com's thoughts, for publishing (the rules run in the page).
-async function siteApi(req, res, part) {
+async function siteApi(req, res, url, part) {
   try {
     if (part === 'thoughts' && req.method === 'GET') return json(res, 200, await site.siteThoughts());
     if (part === 'thoughts' && req.method === 'PUT') {
       const { name, content } = await readJson(req);
       return json(res, 200, await site.writeSiteThought(name, content));
     }
+    if (part === 'images' && req.method === 'PUT') {
+      return json(res, 200, await site.writeSiteImage(url.searchParams.get('name'), await readBody(req, MAX_IMAGE)));
+    }
     if (part === 'commit' && req.method === 'POST') {
-      const { name, message } = await readJson(req);
-      return json(res, 200, await site.commitSiteThought(name, message));
+      const { name, message, image } = await readJson(req);
+      return json(res, 200, await site.commitSiteThought(name, message, image));
     }
     throw httpError(404, 'Not found');
   } catch (err) {
@@ -227,7 +230,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (parts[1] === 'data' && parts.length === 3) return await dataApi(req, res, parts[2]);
       if (parts[1] === 'files' && parts.length <= 3) return await filesApi(req, res, url, parts[2]);
-      if (parts[1] === 'site' && parts.length === 3) return await siteApi(req, res, parts[2]);
+      if (parts[1] === 'site' && parts.length === 3) return await siteApi(req, res, url, parts[2]);
       if (parts[1] === 'images' && parts.length === 2) return await imagesApi(req, res, url);
       if (parts[1] === 'images' && parts[2] === 'fetch' && parts.length === 3 && req.method === 'POST') return await fetchImage(req, res);
       if (parts[1] === 'claude' && parts.length === 2 && req.method === 'POST') return json(res, 200, await askClaude(await readJson(req)));

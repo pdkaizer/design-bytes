@@ -12,6 +12,8 @@ const { execFile } = require('child_process');
 const { writeAtomic } = require('./store');
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,99}\.md$/i;
+const IMAGE = /^[a-z0-9][a-z0-9_-]{0,99}\.(png|jpe?g|webp|gif)$/i;
+const MAX_IMAGE = 20 * 1024 * 1024;
 
 class SiteError extends Error {
   constructor(status, message) {
@@ -19,6 +21,9 @@ class SiteError extends Error {
     this.status = status;
   }
 }
+
+// Social preview images live in src/assets/images/thoughts, as ogImage: /assets/images/thoughts/<name>.
+const IMAGES = path.join('src', 'assets', 'images', 'thoughts');
 
 async function site() {
   const root = process.env.THOUGHTS_SITE;
@@ -58,20 +63,33 @@ async function writeSiteThought(name, content) {
   return { ok: true };
 }
 
-// Commits just src/thoughts/<name> (if it changed), then pushes if there's
-// anything to push. { committed, pushed, note }: note explains a failed commit or push.
-async function commitSiteThought(name, message) {
+async function writeSiteImage(name, data) {
   const { root } = await site();
-  const rel = path.join('src', 'thoughts', fileName(name));
+  if (!IMAGE.test(String(name || ''))) throw new SiteError(400, 'Not an image file name');
+  if (!Buffer.isBuffer(data) || !data.length || data.length > MAX_IMAGE) throw new SiteError(400, 'The image is empty or larger than 20 MB');
+  await fsp.mkdir(path.join(root, IMAGES), { recursive: true });
+  await writeAtomic(path.join(root, IMAGES, name), data);
+  return { ok: true };
+}
+
+// Commits just src/thoughts/<name> and its image (if they changed), then pushes if
+// there's anything to push. { committed, pushed, note }: note explains a failed commit or push.
+async function commitSiteThought(name, message, image = null) {
+  const { root } = await site();
+  const rels = [path.join('src', 'thoughts', fileName(name))];
+  if (image) {
+    if (!IMAGE.test(String(image))) throw new SiteError(400, 'Not an image file name');
+    rels.push(path.join(IMAGES, String(image)));
+  }
   const result = { committed: false, pushed: false, note: '' };
-  await git(root, ['add', '--', rel]);
-  const changed = await git(root, ['diff', '--cached', '--quiet', '--', rel]).then(() => false, (err) => {
+  await git(root, ['add', '--', ...rels]);
+  const changed = await git(root, ['diff', '--cached', '--quiet', '--', ...rels]).then(() => false, (err) => {
     if (err.code === 1) return true;
     throw err;
   });
   if (changed) {
     try {
-      await git(root, ['commit', '-m', String(message || `Update thought: ${name}`).slice(0, 200), '--', rel]);
+      await git(root, ['commit', '-m', String(message || `Update thought: ${name}`).slice(0, 200), '--', ...rels]);
       result.committed = true;
     } catch (err) {
       result.note = `Saved to the site, but committing failed: ${err.stderr || err.message}`;
@@ -91,4 +109,4 @@ async function commitSiteThought(name, message) {
   return result;
 }
 
-module.exports = { siteThoughts, writeSiteThought, commitSiteThought, SiteError };
+module.exports = { siteThoughts, writeSiteThought, writeSiteImage, commitSiteThought, SiteError };
