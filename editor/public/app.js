@@ -2488,14 +2488,15 @@
   function setTheme(theme) {
     if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
     else document.documentElement.dataset.theme = theme;
-    $('#theme').title = `Theme: ${theme}`;
+    document.querySelectorAll('.theme-toggle').forEach((b) => { b.title = `Theme: ${theme}`; });
     prefs.set('theme', theme);
   }
-  $('#theme').addEventListener('click', () => {
+  // The theme button in the editor's top bar and on Home: Auto → Light → Dark.
+  document.querySelectorAll('.theme-toggle').forEach((b) => b.addEventListener('click', () => {
     const next = THEMES[(THEMES.indexOf(prefs.get('theme', 'auto')) + 1) % THEMES.length];
     setTheme(next);
     toast(`Theme: ${next}`);
-  });
+  }));
 
   let toastTimer = 0;
   function toast(message) {
