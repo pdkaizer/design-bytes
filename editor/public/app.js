@@ -730,7 +730,7 @@
   // Changes one front matter line in the editor, keeping undo and the caret sensible.
   function setMetaInEditor(key, value, options) {
     const text = ed.value;
-    const next = md.setMeta(text, key, value, options);
+    const next = Array.isArray(value) ? md.setMetaList(text, key, value, options) : md.setMeta(text, key, value, options);
     if (next === text) return false;
     // Only replace the changed head of the file, so undo and the caret stay sensible.
     let same = 0;
@@ -1979,7 +1979,27 @@
     const data = md.frontMatter(ed.value).data;
     const title = String(data.title || '').trim();
     if (!title) { toast('Give it a title: before publishing'); return; }
-    const missing = ['description', 'category'].filter((k) => !String(data[k] || '').trim());
+    // peterkaizer.com shows the description under the title and on the Thoughts page,
+    // and the tags as Topics: ask for whichever is missing before publishing.
+    if (!String(data.description || '').trim()) {
+      const description = await ask({
+        title: 'Add a description', text: 'peterkaizer.com shows it under the title and on the post’s card on the Thoughts page.',
+        label: 'Description', placeholder: 'One line that sums up the thought', confirm: 'Continue',
+      });
+      if (description === null) return;
+      if (!description) { toast('Add a description to publish'); return; }
+      setMetaInEditor('description', description, { after: ['category', 'slug', 'title'].find((k) => k in data) || 'title' });
+    }
+    if (!md.metaList(ed.value, 'tags').length) {
+      const topics = await ask({
+        title: 'Add topics', text: 'Shown as Topics on the post and on its card. Separate them with commas, or leave this empty to publish without.',
+        label: 'Topics', placeholder: 'e.g. AI, design systems, craft', confirm: 'Continue', optional: true,
+      });
+      if (topics === null) return;
+      const list = topics.split(',').map((t) => t.trim()).filter(Boolean);
+      if (list.length) setMetaInEditor('tags', list, { after: 'description' });
+    }
+    const missing = ['category'].filter((k) => !String(md.frontMatter(ed.value).data[k] || '').trim());
     const again = md.status(ed.value) === 'published';
     const ok = await ask({
       title: again ? 'Update on peterkaizer.com?' : 'Publish to peterkaizer.com?',
@@ -2249,7 +2269,7 @@
   // ---------------------------------------------------------------------------
   // Articles: new, rename, export, delete
 
-  function ask({ title, text = '', label = null, value = '', placeholder = '', hint = '', confirm = 'OK', danger = false }) {
+  function ask({ title, text = '', label = null, value = '', placeholder = '', hint = '', confirm = 'OK', danger = false, optional = false }) {
     return new Promise((resolve) => {
       $('#dialog-title').textContent = title;
       $('#dialog-body').textContent = text;
@@ -2259,7 +2279,7 @@
       const input = $('#dialog-input');
       input.value = value;
       input.placeholder = placeholder;
-      input.required = label !== null;
+      input.required = label !== null && !optional;
       const ok = $('#dialog-ok');
       ok.textContent = confirm;
       ok.className = `btn ${danger ? 'danger' : 'primary'}`;

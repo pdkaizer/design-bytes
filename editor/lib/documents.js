@@ -151,6 +151,7 @@
           // The fields peterkaizer.com uses, ready to fill in.
           content = md.setMeta(content, 'category', '');
           content = md.setMeta(content, 'description', '');
+          content = md.setMetaList(content, 'tags', []); // shown as Topics on the site
           content = md.setMeta(content, 'ogImage', ''); // e.g. /assets/images/thoughts/<slug>.png in the site
         }
         content = md.setMeta(content, 'status', md.DEFAULT_STATUS);

@@ -132,6 +132,51 @@
     return `---\n${inner.filter((l) => l.trim()).join('\n')}\n---\n${fm.body}`;
   }
 
+  // A list in the front matter, e.g. tags, as its items:
+  //   tags:            tags: [AI, code]       tags: AI
+  //     - AI
+  //     - code
+  const LIST_ITEM = /^\s*-\s+/;
+  const unquote = (v) => v.trim().replace(/^(["'])(.*)\1$/, '$2');
+  function metaList(src, key) {
+    const m = String(src == null ? '' : src).match(FRONT);
+    if (!m) return [];
+    const lines = m[1].split(/\r?\n/);
+    const at = lines.findIndex((l) => l.startsWith(`${key}:`));
+    if (at === -1) return [];
+    const inline = lines[at].slice(key.length + 1).trim();
+    if (inline.startsWith('[')) return inline.replace(/^\[|\]$/g, '').split(',').map(unquote).filter(Boolean);
+    if (inline) return [unquote(inline)];
+    const items = [];
+    for (let i = at + 1; i < lines.length && LIST_ITEM.test(lines[i]); i++) items.push(unquote(lines[i].replace(LIST_ITEM, '')));
+    return items.filter(Boolean);
+  }
+
+  // Sets a front matter list (replacing any it had), written as indented items.
+  // An empty list leaves just "key:". Placed like setMeta: in place, after `after`, or at the end.
+  function setMetaList(src, key, items, { after = '' } = {}) {
+    const text = String(src == null ? '' : src);
+    const quote = (v) => (/: |\s#|^[\s'"&*!|>%@`{[\]-]|\s$|"/.test(v) ? `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : v);
+    const block = [`${key}:`, ...items.map((i) => String(i).trim()).filter(Boolean).map((i) => `  - ${quote(i)}`)];
+    if (!frontMatter(text).end) return setMeta(text, key, '').replace(`${key}: `, block.join('\n'));
+    const inner = text.match(FRONT)[1].split(/\r?\n/);
+    const fm = frontMatter(text);
+    let at = inner.findIndex((l) => l.startsWith(`${key}:`));
+    if (at > -1) {
+      let end = at + 1;
+      while (end < inner.length && LIST_ITEM.test(inner[end])) end++;
+      inner.splice(at, end - at, ...block);
+    } else {
+      const anchor = after ? inner.findIndex((l) => l.startsWith(`${after}:`)) : -1;
+      if (anchor > -1) {
+        let end = anchor + 1;
+        while (end < inner.length && LIST_ITEM.test(inner[end])) end++; // after the anchor's own list, if it has one
+        inner.splice(end, 0, ...block);
+      } else inner.push(...block);
+    }
+    return `---\n${inner.filter((l) => l.trim()).join('\n')}\n---\n${fm.body}`;
+  }
+
   // ---------------------------------------------------------------------------
   // Notes: a private block at the end of the file, kept inside an HTML comment
   // so it stays hidden everywhere the Markdown is shown (GitHub, Ghost, …).
@@ -1009,6 +1054,6 @@
 
   return {
     render, inline, title, displayTitle, dayTitle, stats, excerpt, lint, slugify, plainText, escape: esc,
-    frontMatter, setMeta, removeMeta, liftTitle, status, created, published, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, quoteMarkdown, STATUSES, DEFAULT_STATUS,
+    frontMatter, setMeta, setMetaList, metaList, removeMeta, liftTitle, status, created, published, formatStamp, parseStamp, forPublishing, splitNotes, joinNotes, parseNotes, formatNotes, findCutSpot, diffText, readability, quoteMarkdown, STATUSES, DEFAULT_STATUS,
   };
 });

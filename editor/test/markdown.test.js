@@ -259,3 +259,13 @@ test('dayTitle names a journal entry for its day', () => {
   assert.equal(md.dayTitle('2026-02-30'), null);
   assert.equal(md.dayTitle('my-entry'), null);
 });
+
+test('front matter lists: read every style, write as indented items', () => {
+  assert.deepEqual(md.metaList('---\ntags:\n  - AI\n  - "design systems"\n---\n', 'tags'), ['AI', 'design systems']);
+  assert.deepEqual(md.metaList('---\ntags: [a, "b c"]\n---\n', 'tags'), ['a', 'b c']);
+  assert.deepEqual(md.metaList('---\ntags: solo\n---\n', 'tags'), ['solo']);
+  assert.deepEqual(md.metaList('---\ntags:\ndate: 2026-10-25\n---\n', 'tags'), []);
+  const t = md.setMetaList('---\ntitle: T\ndescription: D\ntags:\n  - old\ndate: 2026\n---\n\nBody', 'tags', ['AI', 'design: systems']);
+  assert.equal(t, '---\ntitle: T\ndescription: D\ntags:\n  - AI\n  - "design: systems"\ndate: 2026\n---\n\nBody');
+  assert.equal(md.setMetaList('---\ntitle: T\ndescription: D\n---\n\nB', 'tags', ['x'], { after: 'title' }), '---\ntitle: T\ntags:\n  - x\ndescription: D\n---\n\nB');
+});
