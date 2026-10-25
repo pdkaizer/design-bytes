@@ -1926,7 +1926,7 @@
         const ok = img.naturalWidth >= 1200 && Math.abs(img.naturalWidth / img.naturalHeight - 1200 / 630) < 0.08;
         info.replaceChildren(`${path.slice(10)} · ${img.naturalWidth} × ${img.naturalHeight}`,
           ...(ok ? [] : [document.createElement('br'), Object.assign(document.createElement('span'), { className: 'warn', textContent: 'Social previews look best at 1200 × 630.' })]),
-          document.createElement('br'), 'Publishing copies it into the site.');
+          document.createElement('br'), `In the site as src/assets/images/thoughts/${state.doc.slug}.${(path.split('.').pop() || 'png').toLowerCase().replace('jpeg', 'jpg')}; committed when you publish.`);
       };
       img.onerror = () => { preview.replaceChildren('Image not found'); info.textContent = `${path} isn’t in images/ — choose it again.`; };
       img.src = path.replace(/^\.\.\//, '/');
@@ -1957,10 +1957,17 @@
     if (!file || !state.doc) return;
     const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
     try {
-      const r = await window.DBBridge.saveImage(file, `${state.doc.slug}-og.${ext}`);
+      const doc = state.doc;
+      const r = await window.DBBridge.saveImage(file, `${doc.slug}-og.${ext}`);
       setMetaInEditor('ogImage', r.path, { after: ogAfter(ed.value) });
       syncOg(ed.value);
-      toast(`Social preview image: images/${r.name}`);
+      // Put it in the peterkaizer.com repo straight away; publishing commits it with the post.
+      try {
+        const copied = await thoughtSite.copyImage(doc.slug, ed.value);
+        toast(copied ? `Social preview image saved, and copied to the site as ${copied} — it’s committed when you publish` : `Social preview image: images/${r.name}`);
+      } catch (err) {
+        toast(`Saved images/${r.name}, but couldn’t copy it to the site yet (${err.message}) — publishing will copy it`);
+      }
     } catch (err) {
       toast(`Couldn’t add the image: ${err.message}`);
     }

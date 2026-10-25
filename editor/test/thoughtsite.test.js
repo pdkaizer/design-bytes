@@ -96,3 +96,12 @@ test('a chosen preview image is copied into the site and committed with the post
   await site.publish('restraint', r.draft);
   assert.deepEqual(calls.map((c) => c[0]), ['image', 'commit']);
 });
+
+test('copyImage puts the chosen image in the site straight away', async () => {
+  const writes = [];
+  const site = createThoughtSite({ async writeSiteImage(name, blob) { writes.push([name, blob]); } }, { readImage: async (p) => `bytes of ${p}` });
+  assert.equal(await site.copyImage('craft', '---\ntitle: Craft\nogImage: ../images/craft-og.jpeg\n---\n'), 'src/assets/images/thoughts/craft.jpg');
+  assert.deepEqual(writes, [['craft.jpg', 'bytes of ../images/craft-og.jpeg']]);
+  assert.equal(await site.copyImage('craft', '---\nogImage: /assets/images/thoughts/craft.png\n---\n'), null);
+  assert.equal(writes.length, 1);
+});

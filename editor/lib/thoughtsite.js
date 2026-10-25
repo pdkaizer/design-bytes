@@ -117,6 +117,15 @@
           return [...DEFAULT_CATEGORIES];
         }
       },
+      // Copies the draft's preview image into the site now (not committed until it's
+      // published): the site's file, e.g. src/assets/images/thoughts/<slug>.jpg, or null
+      // if the draft's ogImage isn't one of DB Writer's images.
+      async copyImage(slug, draftText) {
+        const image = ogImageFor(slug, draftText);
+        if (!image) return null;
+        await bridge.writeSiteImage(image.name, await readImage(image.local));
+        return `src/assets/images/thoughts/${image.name}`;
+      },
       // { draft, file, committed, pushed, note }.
       async publish(slug, draftText, { overwrite = false } = {}) {
         const name = `${slug}.md`;
