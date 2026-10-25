@@ -1901,6 +1901,8 @@
   // is saved in images/ like any other; publishing copies it into the site.
   const og = { wrap: $('#og-wrap'), btn: $('#og-btn'), panel: $('#og-panel'), picker: $('#og-picker') };
   const ogPath = (text) => String(md.frontMatter(text).data.ogImage || '').trim();
+  // ogImage goes after description: (or the nearest of category:, slug:, title: the thought has).
+  const ogAfter = (text) => ['description', 'category', 'slug', 'title'].find((k) => k in md.frontMatter(text).data) || 'title';
   function syncOg(text) {
     if (state.doc?.kind !== 'thoughts') return;
     const path = ogPath(text);
@@ -1945,7 +1947,7 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !og.panel.hidden) { toggleOgPanel(false); og.btn.focus(); } });
   $('#og-choose').addEventListener('click', () => og.picker.click());
   $('#og-remove').addEventListener('click', () => {
-    setMetaInEditor('ogImage', '', { after: 'description' });
+    setMetaInEditor('ogImage', '', { after: ogAfter(ed.value) });
     syncOg(ed.value);
     toast('Removed the social preview image');
   });
@@ -1956,7 +1958,7 @@
     const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
     try {
       const r = await window.DBBridge.saveImage(file, `${state.doc.slug}-og.${ext}`);
-      setMetaInEditor('ogImage', r.path, { after: 'description' });
+      setMetaInEditor('ogImage', r.path, { after: ogAfter(ed.value) });
       syncOg(ed.value);
       toast(`Social preview image: images/${r.name}`);
     } catch (err) {
