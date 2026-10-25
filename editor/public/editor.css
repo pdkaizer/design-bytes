@@ -435,6 +435,16 @@ body:not(.empty)[data-status="published"] .copy-md { display: inline-flex; }
 .panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
 .pane { min-width: 0; min-height: 0; }
 .pane-edit { position: relative; display: flex; }
+/* Find and replace (⌘F): a strip across the top of the editor. */
+.find-bar { position: absolute; z-index: 6; top: 0; right: 0; left: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--bg); box-shadow: 0 6px 16px -10px rgb(0 0 0 / 0.25); }
+.find-bar[hidden] { display: none; }
+.find-bar input { flex: 1 1 130px; min-width: 0; max-width: 320px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: 13px var(--ui); }
+.find-bar input:focus { outline: 2px solid var(--accent); outline-offset: 0; background: var(--bg); }
+.find-bar .btn, .find-bar .icon-btn { flex: none; height: 30px; }
+.find-bar .btn { padding: 0 10px; font-size: 12.5px; }
+.find-bar .icon-btn svg { width: 16px; height: 16px; }
+.find-count { flex: none; min-width: 58px; color: var(--muted); font: 12px var(--ui); font-variant-numeric: tabular-nums; text-align: center; }
+.find-count.none { color: var(--danger); }
 #editor { position: relative; z-index: 1; }
 body[data-mode="split"] .pane-edit { border-right: 1px solid var(--line); }
 body[data-mode="write"] .panes, body[data-mode="preview"] .panes, body.focus .panes { grid-template-columns: minmax(0, 1fr); }

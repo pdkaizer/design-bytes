@@ -63,6 +63,20 @@
     // Commits just that post and its image (if they changed) and pushes: { committed, pushed, note }.
     commitSiteThought: (name, message, image = null) => call('POST', '/api/site/commit', { name, message, image }),
 
+    // Prints a page of HTML (Print shows the system's print dialog).
+    printPage: (html, title = '') => new Promise((resolve) => {
+      const frame = document.createElement('iframe');
+      frame.style.cssText = 'position:fixed;width:0;height:0;border:0;visibility:hidden';
+      frame.srcdoc = html;
+      frame.onload = () => {
+        frame.contentDocument.title = title || frame.contentDocument.title;
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        setTimeout(() => { frame.remove(); resolve({ ok: true }); }, 500);
+      };
+      document.body.append(frame);
+    }),
+
     // A web page's { title, description, site } (any of them may be missing).
     pageDetails: (url) => call('POST', '/api/page-details', { url }),
 

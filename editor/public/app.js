@@ -507,6 +507,98 @@
     return { x: r.left + o.left - ed.scrollLeft, y: r.top + o.top - ed.scrollTop, height: o.height };
   }
 
+  // ---------------------------------------------------------------------------
+  // Find and replace (⌘F): plain text, ignoring case. Replacing goes through
+  // execCommand, so ⌘Z undoes it.
+
+  const find = { bar: $('#find-bar'), input: $('#find-input'), replace: $('#replace-input'), count: $('#find-count') };
+  const findOpen = () => !find.bar.hidden;
+  function findMatches() {
+    const q = find.input.value.toLowerCase();
+    if (!q) return [];
+    const text = ed.value.toLowerCase();
+    const out = [];
+    for (let i = text.indexOf(q); i !== -1; i = text.indexOf(q, i + q.length)) out.push(i);
+    return out;
+  }
+  // Shows "3 of 12" for the match that's selected (or the one at/after the cursor).
+  function updateFindCount() {
+    const matches = findMatches();
+    const at = matches.indexOf(ed.selectionStart);
+    const current = at > -1 && ed.selectionEnd - ed.selectionStart === find.input.value.length ? at + 1 : 0;
+    find.count.textContent = !find.input.value ? '' : !matches.length ? 'No matches' : current ? `${current} of ${matches.length}` : `${matches.length} found`;
+    find.count.classList.toggle('none', !!find.input.value && !matches.length);
+    return matches;
+  }
+  // Selects the next (dir 1) or previous (dir -1) match, scrolling it into view.
+  function findStep(dir = 1, from = dir > 0 ? ed.selectionEnd : ed.selectionStart) {
+    const matches = findMatches();
+    if (!matches.length) { updateFindCount(); return false; }
+    let i = dir > 0 ? matches.findIndex((m) => m >= from) : matches.findLastIndex((m) => m < from);
+    if (i === -1) i = dir > 0 ? 0 : matches.length - 1; // wrap around
+    const start = matches[i];
+    ed.setSelectionRange(start, start + find.input.value.length);
+    ed.scrollTop = Math.max(0, caretTop(start) - ed.clientHeight / 3);
+    updateFindCount();
+    updateCursor();
+    return true;
+  }
+  function openFind() {
+    if (!state.doc || body.dataset.page !== 'editor') return;
+    if (body.dataset.mode === 'preview') setMode('split');
+    const picked = ed.value.slice(ed.selectionStart, ed.selectionEnd);
+    if (picked && !picked.includes('\n')) find.input.value = picked;
+    find.bar.hidden = false;
+    find.input.focus();
+    find.input.select();
+    updateFindCount();
+  }
+  function closeFind() {
+    if (!findOpen()) return;
+    find.bar.hidden = true;
+    ed.focus(); // the last match stays selected
+  }
+  const selectionIsMatch = () => find.input.value && ed.selectionEnd - ed.selectionStart === find.input.value.length &&
+    ed.value.slice(ed.selectionStart, ed.selectionEnd).toLowerCase() === find.input.value.toLowerCase();
+  function replaceOne() {
+    if (!find.input.value) return;
+    if (!selectionIsMatch()) { findStep(1, ed.selectionStart); if (!selectionIsMatch()) return; }
+    const start = ed.selectionStart;
+    const scroll = ed.scrollTop;
+    replaceRange(start, ed.selectionEnd, find.replace.value);
+    ed.scrollTop = scroll;
+    findStep(1, start + find.replace.value.length);
+    find.replace.focus();
+  }
+  function replaceAll() {
+    const matches = findMatches();
+    if (!matches.length) return;
+    const q = find.input.value.length;
+    let text = ed.value;
+    for (const m of [...matches].reverse()) text = text.slice(0, m) + find.replace.value + text.slice(m + q);
+    const scroll = ed.scrollTop;
+    replaceRange(0, ed.value.length, text, 0, 0); // one step for ⌘Z
+    ed.scrollTop = scroll;
+    updateFindCount();
+    toast(`Replaced ${matches.length} ${matches.length === 1 ? 'match' : 'matches'}`);
+    find.replace.focus();
+  }
+  find.input.addEventListener('input', () => { findStep(1, ed.selectionStart); });
+  find.input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+  });
+  find.replace.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); if (e.metaKey || e.ctrlKey) replaceAll(); else replaceOne(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+  });
+  $('#find-next').addEventListener('click', () => findStep(1));
+  $('#find-prev').addEventListener('click', () => findStep(-1));
+  $('#replace-one').addEventListener('click', replaceOne);
+  $('#replace-all').addEventListener('click', replaceAll);
+  $('#find-close').addEventListener('click', closeFind);
+  ed.addEventListener('input', () => { if (findOpen()) updateFindCount(); });
+
   function goTo(line, column = 1, length = 0) {
     const lines = ed.value.split('\n');
     let pos = 0;
@@ -1693,7 +1785,11 @@
     showDropHint(false);
     if (!hasFiles(e)) return;
     e.preventDefault();
-    const files = [...e.dataTransfer.files].filter((f) => !f.type.startsWith('image/'));
+    const all = [...e.dataTransfer.files];
+    // Images dropped anywhere (not just on the text) go into the open piece at the cursor.
+    const images = all.filter((f) => f.type.startsWith('image/'));
+    if (images.length && state.doc && body.dataset.page === 'editor') uploadImages(images);
+    const files = all.filter((f) => !f.type.startsWith('image/'));
     if (files.length) importFiles(files);
   });
 
@@ -2423,10 +2519,10 @@
   }
 
   // A single, self-contained HTML page for the article, with its images embedded.
-  async function exportDoc() {
-    await save();
+  // The article as a single, self-contained page (images embedded), as it looks published.
+  async function standalonePage() {
     const doc = state.doc;
-    try {
+    {
       const css = await (await fetch('/article.css')).text();
       let html = window.DBTemplate.renderArticle(fileText(), { mtime: doc.mtime, css });
       const names = new Set([...html.matchAll(/src="\.\.\/images\/([^"?#]+)"/g)].map((m) => m[1]));
@@ -2443,6 +2539,15 @@
         if (data) html = html.split(`src="../images/${name}"`).join(`src="${data}"`);
       }
       html = html.replace(/<a href="\.\.\/index\.html">/, '<a href="#">'); // there's no site index next to a downloaded page
+      return html;
+    }
+  }
+
+  async function exportDoc() {
+    await save();
+    const doc = state.doc;
+    try {
+      const html = await standalonePage();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
       a.download = `${doc.slug}.html`;
@@ -2452,6 +2557,17 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     } catch (err) {
       toast(`Couldn’t make the HTML file: ${err.message}`);
+    }
+  }
+
+  // Print (⌘P): the article as it looks published, not the editor.
+  async function printDoc() {
+    if (!state.doc) return;
+    await save();
+    try {
+      await window.DBBridge.printPage(await standalonePage(), md.displayTitle(ed.value) || state.doc.slug);
+    } catch (err) {
+      toast(`Couldn’t print: ${err.message}`);
     }
   }
 
@@ -2500,6 +2616,7 @@
   const actions = {
     rename: renameDoc,
     export: exportDoc,
+    print: printDoc,
     'copy-md': () => copyMarkdown({ includeTitle: true }),
     history: () => openHistory(),
     'copy-html': copyHtml,
@@ -2615,6 +2732,9 @@
       if (body.classList.contains('focus')) { toggleFocus(false); return; }
     }
     if (!mod) return;
+    if (e.code === 'KeyF' && !e.altKey && !e.shiftKey) { e.preventDefault(); openFind(); return; }
+    if (e.code === 'KeyP' && !e.altKey && !e.shiftKey) { e.preventDefault(); printDoc(); return; }
+    if (e.code === 'KeyG' && findOpen()) { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); return; }
     if (e.altKey && e.code === 'KeyN') { e.preventDefault(); if (state.doc) toggleNotes(); return; }
     if (e.altKey && e.code === 'KeyM') { e.preventDefault(); moveToNotes(); return; }
     if (e.key === 's') { e.preventDefault(); save(); }
@@ -2679,6 +2799,9 @@
   window.dbw = {
     toast, prefs, ask, copyText, setView, quotes, social, links, documents,
     saveNow: () => save(), // the Mac app calls this before quitting
+    // For the Mac app's menus.
+    find: (what = 'open') => (what === 'next' ? findStep(1) : what === 'previous' ? findStep(-1) : openFind()),
+    print: () => printDoc(),
     // Articles and thoughts, keyed the way saved links refer to them.
     articles: () => [
       ...state.articles.map((a) => ({ ...a, kind: 'articles' })),

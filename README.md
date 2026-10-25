@@ -11,7 +11,9 @@ npm start        # opens the writer at http://localhost:4321
 ```
 
 - Everything autosaves to `articles/<name>.md`, so you can keep using git or VS Code alongside it. If a file changes on disk while you're editing, the writer asks which version to keep.
-- Paste, drop or pick an image and it's saved to `images/` and inserted as `![](../images/…)`.
+- Paste, drop or pick an image and it's saved to `images/` and inserted as `![](../images/…)` at the cursor (images dropped anywhere in the window count, not just on the text).
+- **Find and replace** (⌘F): searches the text ignoring case, shows "3 of 12", Return / ⇧Return (or ⌘G / ⇧⌘G) step through matches, and Replace or All replaces them (⌘Z undoes it).
+- **Print** (⌘P, or ⋯ → Print…) prints the article as it looks published, not the editor.
 - Write / Split / Preview views, focus mode, light & dark themes, three editor fonts.
 - The status bar shows word count, reading time, and writing suggestions (links pasted twice, repeated words, extra spaces).
 - Each article has a status — **Backlog → Editing → Final → Published** — set from the picker in the top bar and stored at the top of the file:
