@@ -8,6 +8,7 @@
 
 const http = require('http');
 const fsp = require('fs').promises;
+const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
 const store = require('./lib/store');
@@ -89,6 +90,10 @@ async function filesApi(req, res, url, action) {
     if (action === 'move' && req.method === 'POST') {
       const { from, to } = await readJson(req);
       return json(res, 200, await files.move(from, to));
+    }
+    if (action === 'mirror' && req.method === 'POST') {
+      const { name, content, images } = await readJson(req);
+      return json(res, 200, await files.mirror(name, content, images));
     }
     if (action) throw httpError(404, 'Not found');
     if (req.method === 'GET' && url.searchParams.has('dir')) {
@@ -256,14 +261,16 @@ server.on('error', (err) => {
 server.listen(PORT, HOST, () => {
   const address = `http://localhost:${PORT}`;
   console.log(`\n  DB Writer  →  ${address}\n`);
-  console.log(`  articles:    ${path.relative(process.cwd(), store.ARTICLES) || '.'}/`);
-  console.log(`  thoughts:    ${path.relative(process.cwd(), store.THOUGHTS) || '.'}/  →  publishes to ${process.env.THOUGHTS_SITE || '(set THOUGHTS_SITE in .env)'}`);
-  console.log(`  quick notes: ${path.relative(process.cwd(), store.NOTES) || '.'}/`);
-  console.log(`  journal:     ${path.relative(process.cwd(), store.JOURNAL) || '.'}/`);
-  console.log(`  links:       ${path.relative(process.cwd(), path.dirname(datafiles.FILES.links)) || '.'}/`);
-  console.log(`  quotes:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.quotes)) || '.'}/`);
-  console.log(`  social:      ${path.relative(process.cwd(), path.dirname(datafiles.FILES.social)) || '.'}/`);
-  console.log(`  images:      ${path.relative(process.cwd(), store.IMAGES) || '.'}/\n`);
+  const show = (dir) => (dir.startsWith(process.cwd() + path.sep) ? path.relative(process.cwd(), dir) : dir.replace(os.homedir(), '~'));
+  if (store.ROOT !== store.REPO) console.log(`  writing:     ${show(store.ROOT)}/  (published articles are copied to ${show(store.REPO)}/articles)`);
+  console.log(`  articles:    ${show(store.ARTICLES)}/`);
+  console.log(`  thoughts:    ${show(store.THOUGHTS)}/  →  publishes to ${process.env.THOUGHTS_SITE || '(set THOUGHTS_SITE in .env)'}`);
+  console.log(`  quick notes: ${show(store.NOTES)}/`);
+  console.log(`  journal:     ${show(store.JOURNAL)}/`);
+  console.log(`  links:       ${show(path.dirname(datafiles.FILES.links))}/`);
+  console.log(`  quotes:      ${show(path.dirname(datafiles.FILES.quotes))}/`);
+  console.log(`  social:      ${show(path.dirname(datafiles.FILES.social))}/`);
+  console.log(`  images:      ${show(store.IMAGES)}/\n`);
   if (process.argv.includes('--open')) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
     execFile(opener, [address], () => {});

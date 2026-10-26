@@ -14,7 +14,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
-const { ROOT, writeAtomic } = require('./store');
+const { REPO, ROOT, IMAGE_EXT, writeAtomic } = require('./store');
 
 const FOLDERS = ['articles', 'thoughts', 'quick-notes', 'journal'];
 const PART = /^(?:\.history|\.trash|[A-Za-z0-9][\w@.-]{0,150})$/;
@@ -107,4 +107,33 @@ function remove(rel) {
   });
 }
 
-module.exports = { FOLDERS, list, read, write, move, remove, FileError };
+// When the writing lives outside the project (WRITING_FOLDER), published articles are
+// copied into the project's articles/, with their images, so it stays the public record.
+// Only what changed is written: { mirrored, copied: ["articles/x.md", "images/y.png"] }.
+const ARTICLE = /^[a-z0-9][a-z0-9_-]{0,99}\.md$/i;
+
+function mirror(name, content, images = []) {
+  if (!ARTICLE.test(String(name || ''))) throw new FileError(400, `Not an article file name: ${name}`);
+  if (typeof content !== 'string') throw new FileError(400, 'content must be text');
+  if (ROOT === REPO) return Promise.resolve({ mirrored: false, copied: [] });
+  return serial(async () => {
+    const copied = [];
+    const copy = async (rel, data) => {
+      const dest = path.join(REPO, rel);
+      const old = await fsp.readFile(dest).catch(() => null);
+      if (old && old.equals(data)) return;
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      await writeAtomic(dest, data);
+      copied.push(rel);
+    };
+    await copy(path.join('articles', name), Buffer.from(content));
+    for (const image of new Set(Array.isArray(images) ? images : [])) {
+      if (!PART.test(String(image)) || !IMAGE_EXT.test(image)) continue;
+      const data = await fsp.readFile(path.join(ROOT, 'images', image)).catch(() => null);
+      if (data) await copy(path.join('images', image), data);
+    }
+    return { mirrored: true, copied };
+  });
+}
+
+module.exports = { FOLDERS, list, read, write, move, remove, mirror, FileError };

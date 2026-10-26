@@ -37,6 +37,14 @@
       .replace(/-+$/, '') || 'untitled';
   }
 
+  // The images a document uses, by name: ![](../images/<name>).
+  function imagesIn(content) {
+    const names = [...String(content).matchAll(/\.\.\/images\/([^\s)"'<>?#]+)/g)].map((m) => {
+      try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+    });
+    return [...new Set(names)];
+  }
+
   const GAP = 5 * 60 * 1000; // at most one automatic version every 5 minutes
   const HOUR = 60 * 60 * 1000;
   const DAY = 24 * HOUR;
@@ -184,6 +192,9 @@
       }
       try {
         const { mtime } = await bridge.writeFile(file, content, { mtime: force ? null : previous?.mtime ?? null, keepalive });
+        if (kind === 'articles' && !keepalive && bridge.mirrorArticle && md.status(content) === 'published') {
+          await bridge.mirrorArticle(`${slug}.md`, content, imagesIn(content)).catch((err) => console.error('mirror:', err));
+        }
         return { slug, mtime };
       } catch (err) {
         if (err.status === 409 && err.data?.current) {

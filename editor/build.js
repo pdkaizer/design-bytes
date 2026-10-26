@@ -13,7 +13,7 @@ const { renderArticle, renderIndex } = require('./lib/template');
 
 const css = require('fs').readFileSync(path.join(__dirname, 'public', 'article.css'), 'utf8');
 
-const OUT = path.join(store.ROOT, 'dist');
+const OUT = path.join(store.REPO, 'dist');
 
 (async () => {
   await fsp.rm(OUT, { recursive: true, force: true });

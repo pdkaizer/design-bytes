@@ -105,6 +105,21 @@ test('saving refuses to overwrite a change made elsewhere, unless forced', async
   assert.equal((await docs.read('articles', 'draft')).content, 'mine');
 });
 
+test('saving a published article mirrors it, with the images it uses, into the project', async () => {
+  const bridge = memoryFiles();
+  const mirrored = [];
+  bridge.mirrorArticle = async (name, content, images) => { mirrored.push({ name, images }); return { mirrored: true }; };
+  const docs = make(bridge);
+  const a = await docs.create('articles', { title: 'Draft' });
+  await docs.save('articles', 'draft', `${a.content}![](../images/a.png) ![x](../images/My%20Pic.jpg) ![](../images/a.png)`, { previous: a });
+  assert.deepEqual(mirrored, []); // not published yet
+  const text = a.content.replace('status: backlog', 'status: published') + '![](../images/a.png) ![x](../images/My%20Pic.jpg) ![](../images/a.png)';
+  await docs.save('articles', 'draft', text, { force: true });
+  assert.deepEqual(mirrored, [{ name: 'draft.md', images: ['a.png', 'My Pic.jpg'] }]);
+  await docs.save('articles', 'draft', text, { force: true, keepalive: true }); // closing the tab: no mirror
+  assert.equal(mirrored.length, 1);
+});
+
 test('history keeps the old text before a save, at most every few minutes, and names versions', async () => {
   let now = NOW;
   const bridge = memoryFiles();

@@ -31,6 +31,9 @@
     // A file or folder; fails with 409 if something is already at `to`, 404 if `from` is missing.
     moveFile: (from, to) => call('POST', '/api/files/move', { from, to }),
     deleteFile: (path) => call('DELETE', `/api/files?${q({ path })}`),
+    // Copies a published article (and the images it uses) into the project, when the
+    // writing lives elsewhere (WRITING_FOLDER): { mirrored, copied }.
+    mirrorArticle: (name, content, images = []) => call('POST', '/api/files/mirror', { name, content, images }),
 
     // A data file (e.g. "quotes"): { data, version }, with data null if there isn't one yet.
     readData: (name) => call('GET', `/api/data/${encodeURIComponent(name)}`),

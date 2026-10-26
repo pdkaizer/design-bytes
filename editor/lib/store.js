@@ -1,15 +1,19 @@
 'use strict';
 
-// File-system access. Documents live in collections — articles in /articles,
+// File-system access. The writing lives in WRITING_FOLDER (set in .env, e.g. a
+// folder in iCloud Drive) or, without it, in the project itself. Documents live in collections — articles in /articles,
 // thoughts (peterkaizer.com posts) in /thoughts, quick notes in /quick-notes and journal entries in /journal — as <slug>.md, each with its own .trash and
 // .history. Images live in /images and are referenced as ../images/<name>.
 
 const fs = require('fs');
 const fsp = fs.promises;
+const os = require('os');
 const path = require('path');
 const md = require('./markdown');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..'); // the project: the editor, and published articles
+const WRITING = process.env.WRITING_FOLDER;
+const ROOT = WRITING ? path.resolve(WRITING.replace(/^~(?=$|\/)/, os.homedir())) : REPO;
 const ARTICLES = path.join(ROOT, 'articles');
 const NOTES = path.join(ROOT, 'quick-notes');
 const THOUGHTS = path.join(ROOT, 'thoughts'); // drafts of posts for peterkaizer.com
@@ -112,7 +116,7 @@ async function uniqueImageName(name) {
 }
 
 module.exports = {
-  ROOT, ARTICLES, THOUGHTS, NOTES, JOURNAL, IMAGES, TRASH, IMAGE_EXT,
+  REPO, ROOT, ARTICLES, THOUGHTS, NOTES, JOURNAL, IMAGES, TRASH, IMAGE_EXT,
   isSlug, articlePath, exists, slugify, writeAtomic, collection,
   readArticle, listArticles, listImages, uniqueImageName,
 };
