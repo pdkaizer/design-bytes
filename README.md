@@ -4,6 +4,11 @@ DB Writer opens on **Home**: writing stats for the last 7 days (words written, d
 
 Articles live in `articles/` as Markdown; images live in `images/`. Quick notes live in `quick-notes/`, journal entries in `journal/`, saved links in `links/`, quotes in `quotes/` and social posts in `social/` (all kept out of git, so they stay on this machine).
 
+The writing can live somewhere else, such as iCloud Drive, so other devices can reach it: set `WRITING_FOLDER` in `.env` and all of those folders are read from there. Saving a Published article then copies it, with the images it uses, back into `articles/` and `images/` here, so this repo stays the record of published work.
+```
+WRITING_FOLDER="~/Library/Mobile Documents/com~apple~CloudDocs/DB Writer"
+```
+
 ## Writing with DB Writer
 
 ```sh
