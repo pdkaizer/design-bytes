@@ -2645,7 +2645,10 @@
   // View: modes, focus, sidebar, theme
 
   const MODES = ['write', 'split', 'preview'];
+  // A phone has no room for two panes side by side, so Split becomes Write there.
+  const narrow = matchMedia('(max-width: 760px)');
   function setMode(mode) {
+    if (mode === 'split' && narrow.matches) mode = 'write';
     body.dataset.mode = mode;
     prefs.set('mode', mode);
     document.querySelectorAll('#modes button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
@@ -2738,7 +2741,11 @@
     if (e.altKey && e.code === 'KeyN') { e.preventDefault(); if (state.doc) toggleNotes(); return; }
     if (e.altKey && e.code === 'KeyM') { e.preventDefault(); moveToNotes(); return; }
     if (e.key === 's') { e.preventDefault(); save(); }
-    else if (e.key === '/') { e.preventDefault(); setMode(MODES[(MODES.indexOf(body.dataset.mode) + 1) % MODES.length]); }
+    else if (e.key === '/') {
+      e.preventDefault();
+      const modes = narrow.matches ? MODES.filter((m) => m !== 'split') : MODES;
+      setMode(modes[(modes.indexOf(body.dataset.mode) + 1) % modes.length]);
+    }
     else if (e.key === '.' && !e.shiftKey) { e.preventDefault(); toggleFocus(); }
     else if (e.key === '\\') { e.preventDefault(); toggleSidebar(); }
   });

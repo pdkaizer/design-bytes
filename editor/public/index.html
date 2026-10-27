@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DB Writer</title>
-<link rel="icon" href="/images/db-icon.png">
+<link rel="icon" href="/db-icon.png">
 <link rel="stylesheet" href="/article.css">
 <link rel="stylesheet" href="/editor.css">
 </head>
@@ -13,7 +13,7 @@
   <aside class="sidebar" aria-label="Articles">
     <header class="brand">
       <button class="brand-home" id="brand-home" title="Home">
-        <img src="/images/db-icon@2x.png" alt="DB" width="32" height="32">
+        <img src="/db-icon@2x.png" alt="DB" width="32" height="32">
         <h1>Writer</h1>
       </button>
     </header>
@@ -49,6 +49,7 @@
         <span id="doc-title">design bytes</span>
         <span id="doc-file"></span>
       </div>
+      <div class="doc-controls">
       <button class="btn copy-md" id="copy-md" title="Copy Markdown for Ghost — without the status block or title">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="6.5" y="6.5" width="10" height="11" rx="2"/><path d="M13.5 6.5V4.5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1"/></svg>
         <span>Copy for Ghost</span>
@@ -92,6 +93,7 @@
       <button class="icon-btn" id="focus" title="Focus mode (⌘.)" aria-label="Focus mode">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 7V4.5A1.5 1.5 0 0 1 4.5 3H7M13 3h2.5A1.5 1.5 0 0 1 17 4.5V7M17 13v2.5a1.5 1.5 0 0 1-1.5 1.5H13M7 17H4.5A1.5 1.5 0 0 1 3 15.5V13"/></svg>
       </button>
+      </div>
       <button class="icon-btn theme-toggle" id="theme" title="Theme" aria-label="Theme">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5v13a6.5 6.5 0 0 0 0-13Z" fill="currentColor"/></svg>
       </button>
@@ -175,7 +177,7 @@
         <article id="preview" class="article"></article>
       </div>
       <div class="empty-state" id="empty">
-        <img src="/images/db-icon@2x.png" alt="" width="64" height="64">
+        <img src="/db-icon@2x.png" alt="" width="64" height="64">
         <h2>Nothing open</h2>
         <p>Pick something from the sidebar, or start something new.</p>
         <button class="btn primary" id="empty-new">New</button>
@@ -312,7 +314,7 @@
 
 <main class="home" id="home" aria-label="Home">
   <header class="home-head">
-    <div class="home-brand"><img src="/images/db-icon@2x.png" alt="DB" width="36" height="36"><h1>Writer</h1></div>
+    <div class="home-brand"><img src="/db-icon@2x.png" alt="DB" width="36" height="36"><h1>Writer</h1></div>
     <input id="home-search" type="search" placeholder="Search everything — articles, thoughts, notes, journal, links, quotes" aria-label="Search everything">
     <button class="icon-btn import-btn theme-toggle" id="home-theme" title="Theme" aria-label="Theme"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5v13a6.5 6.5 0 0 0 0-13Z" fill="currentColor"/></svg></button>
     <button class="icon-btn import-btn" id="home-import" title="Import Markdown files as articles" aria-label="Import"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12.5V3.5M6.5 7 10 3.5 13.5 7"/><path d="M3 12.5v2A2.5 2.5 0 0 0 5.5 17h9a2.5 2.5 0 0 0 2.5-2.5v-2"/></svg></button>

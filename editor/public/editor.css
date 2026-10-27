@@ -330,6 +330,7 @@ body:not(.empty)[data-status="published"] .copy-md { display: inline-flex; }
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
+.doc-controls { display: contents; } /* the document's own controls: a second row on small screens */
 .doc-title { display: flex; flex: 1; flex-direction: column; min-width: 0; margin-left: 4px; }
 #doc-title, #doc-file { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 #doc-title { font-weight: 620; }
@@ -1537,6 +1538,23 @@ dialog small:empty { display: none; }
 .ghost-row .m { display: block; color: var(--muted); font-size: 12px; }
 .import-date .from-file { color: var(--muted); font-size: 12px; font-weight: 400; }
 
+/* Medium screens (an iPad, a narrow window): shorter labels in the top bar ---- */
+
+@media (max-width: 1180px) {
+  #doc-file, .copy-md span, .publish-btn span, #pubdate > span { display: none; }
+  .copy-md { padding: 0 8px; }
+  .doc-title { min-width: 120px; }
+}
+
+/* An iPad held upright, or a phone: the document's own controls get a row of their own. */
+@media (max-width: 1024px) {
+  .topbar { flex-wrap: wrap; }
+  .doc-controls { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; order: 1; width: 100%; padding: 2px 0 2px 4px; }
+  /* The OG image panel opens under the whole row, not off the edge of the screen. */
+  .doc-controls .og-pick { position: static; }
+  .doc-controls .og-panel { left: 0; right: auto; width: min(360px, calc(100vw - 32px)); }
+}
+
 /* Small screens ------------------------------------------------------------- */
 
 .scrim { display: none; }
@@ -1555,6 +1573,7 @@ dialog small:empty { display: none; }
   body.show-sidebar .sidebar { transform: none; box-shadow: var(--shadow); }
   body.show-sidebar .scrim { display: block; position: fixed; z-index: 35; inset: 0; background: rgba(28, 23, 24, 0.35); }
   .topbar { padding: 6px 8px; gap: 2px; }
+  #modes [data-mode="split"] { display: none; }
   #doc-file, .status, #focus, .copy-md span, .publish-btn span { display: none; }
   .copy-md { padding: 0 8px; }
   .seg button { padding: 4px 7px; }
