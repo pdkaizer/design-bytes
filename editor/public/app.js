@@ -138,6 +138,7 @@
     if (LIBRARY.includes(view)) { // links.js / quotes.js run these pages
       document.querySelectorAll('#view-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
       history.replaceState(null, '', `#${view}`);
+      $('#library-title').textContent = view[0].toUpperCase() + view.slice(1);
       return;
     }
     if (state.doc && LIBRARY.includes(location.hash.slice(1))) history.replaceState(null, '', hashFor(state.doc.kind, state.doc.slug));
@@ -150,7 +151,12 @@
   $('#view-tabs').addEventListener('click', (e) => {
     const view = e.target.closest('[data-view]')?.dataset.view;
     if (view && view !== state.view) setView(view);
+    if (LIBRARY.includes(view) && isMobile()) body.classList.remove('show-sidebar');
   });
+  // On the phone, choosing a tag or person closes the drawer, so the filtered list shows.
+  document.querySelectorAll('.links-side').forEach((side) => side.addEventListener('click', (e) => {
+    if (e.target.closest('.tag-row') && isMobile()) body.classList.remove('show-sidebar');
+  }));
 
   const STATUS_LABELS = { backlog: 'Backlog', editing: 'Editing', final: 'Final', published: 'Published' };
 
@@ -2699,6 +2705,8 @@
   $('#go-home').addEventListener('click', goHome);
   $('#brand-home').addEventListener('click', goHome);
   $('#toggle-sidebar').addEventListener('click', toggleSidebar);
+  $('#library-home').addEventListener('click', goHome);
+  $('#library-sidebar').addEventListener('click', toggleSidebar);
   $('#scrim').addEventListener('click', () => body.classList.remove('show-sidebar'));
 
   const THEMES = ['auto', 'light', 'dark'];

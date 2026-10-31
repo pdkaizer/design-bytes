@@ -772,7 +772,7 @@ body[data-mode="preview"]:not(.focus) .read-backdrop { display: none; }
 /* Links -------------------------------------------------------------------- */
 
 /* The Links tab swaps the editor for the links page, and the sidebar list for tags. */
-.links-page, .links-side { display: none; }
+.links-page, .links-side, .library-bar { display: none; }
 body[data-page="library"] :is(.sidebar-actions, #filters, nav:not(.links-side), .topbar, .toolbar, #conflict, .work, .statusbar) { display: none !important; }
 body[data-view="links"] #links-side, body[data-view="quotes"] #quotes-side, body[data-view="social"] #social-side { display: block; }
 body[data-view="links"] #links-page, body[data-view="quotes"] #quotes-page, body[data-view="social"] #social-page { display: flex; flex: 1; }
@@ -934,7 +934,7 @@ body[data-view="links"] #links-page, body[data-view="quotes"] #quotes-page, body
 }
 .article-chip:hover { background: var(--selection); }
 .link-edit-field { display: grid; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
-.article-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.article-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
 .article-pick select {
   height: 28px;
   max-width: min(100%, 280px);
@@ -980,11 +980,12 @@ body[data-view="links"] #links-page, body[data-view="quotes"] #quotes-page, body
 /* Quotes */
 .quote-add-wrap {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 14px max(16px, calc((100% - 760px) / 2));
   border-bottom: 1px solid var(--line);
 }
-.quote-form { display: grid; gap: 8px; }
+.quote-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .quote-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .quote-form textarea, .quote-form input, #quote-search, .quote-edit textarea, .quote-edit input {
   min-width: 0;
@@ -1015,12 +1016,12 @@ body[data-view="links"] #links-page, body[data-view="quotes"] #quotes-page, body
 .quote-cite .who { color: var(--text); font-weight: 600; }
 .quote-card .link-articles { margin-left: 17px; }
 .quote-card .link-note { margin-left: 17px; }
-.quote-edit { display: grid; gap: 8px; }
+.quote-edit { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .quote-edit input { height: 34px; }
 .art-link blockquote { margin: 0; color: var(--text); font: italic 13.5px/1.45 var(--a-serif); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* Social posts */
-.social-form { display: grid; gap: 10px; }
+.social-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .social-form textarea {
   min-height: 92px;
   padding: 10px 12px;
@@ -1093,6 +1094,8 @@ body[data-view="links"] #links-page, body[data-view="quotes"] #quotes-page, body
 .post-net .mark { padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; cursor: pointer; }
 
 @media (max-width: 760px) {
+  body[data-page="library"] .library-bar { display: flex; align-items: center; gap: 2px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .library-title { margin-left: 6px; font-weight: 600; }
   .social-tools { padding: 10px 16px 0; }
   .quote-add-wrap { padding-left: 16px; padding-right: 16px; }
   .links-head, .links-filter, .links-undo { padding-left: 16px; padding-right: 16px; }
